@@ -2,15 +2,15 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { LLMConfig } from '@rinardnick/ts-mcp-client';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
 import {
   Card,
   CardContent,
   CardFooter,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card';
+} from '../components/ui/card';
 
 interface Message {
   role: 'user' | 'assistant' | 'system';

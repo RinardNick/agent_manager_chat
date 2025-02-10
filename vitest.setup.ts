@@ -1,6 +1,8 @@
 import '@testing-library/jest-dom';
-import { vi } from 'vitest';
+import { vi, expect, afterEach } from 'vitest';
 import { TextEncoder, TextDecoder } from 'util';
+import { cleanup } from '@testing-library/react';
+import matchers from '@testing-library/jest-dom/matchers';
 
 // Mock fetch globally
 global.fetch = vi.fn();
@@ -162,3 +164,11 @@ class MockEventSource implements EventSource {
 
 // @ts-ignore - Replace global EventSource with our mock
 global.EventSource = MockEventSource;
+
+// Extend Vitest's expect with React Testing Library's matchers
+expect.extend(matchers);
+
+// Clean up after each test
+afterEach(() => {
+  cleanup();
+});
