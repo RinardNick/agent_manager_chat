@@ -2,6 +2,15 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { LLMConfig } from '@rinardnick/ts-mcp-client';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 
 interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -82,7 +91,15 @@ export function Chat() {
     };
 
     initSession();
-  }, [sessionId]); // Add sessionId as dependency
+  }, [sessionId]);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!input.trim() || !sessionId || isLoading) return;
+
+    const message = input.trim();
+    await sendMessage(message);
+  };
 
   const sendMessage = async (message: string) => {
     if (!sessionId || !message.trim() || isLoading) return;
@@ -117,7 +134,7 @@ export function Chat() {
           eventSource.readyState
         );
         isConnectionEstablished = true;
-        clearTimeout(connectionTimeout); // Clear initial connection timeout
+        clearTimeout(connectionTimeout);
       });
 
       eventSource.addEventListener('message', event => {
@@ -148,19 +165,19 @@ export function Chat() {
           } else if (data.type === 'done') {
             console.log('[CLIENT] Stream complete, closing connection');
             eventSource.close();
-            setIsLoading(false); // Ensure loading state is cleared
+            setIsLoading(false);
           } else if (data.type === 'error') {
             console.error('[CLIENT] Server reported error:', data.error);
             setError(data.error);
             eventSource.close();
-            setIsLoading(false); // Ensure loading state is cleared
+            setIsLoading(false);
           }
         } catch (error) {
           console.error('[CLIENT] Error processing message:', error);
           console.error('[CLIENT] Raw event data:', event.data);
           setError('Error processing response. Please try again.');
           eventSource.close();
-          setIsLoading(false); // Ensure loading state is cleared
+          setIsLoading(false);
         }
       });
 
@@ -173,25 +190,21 @@ export function Chat() {
         );
 
         if (!isConnectionEstablished) {
-          // Only handle connection errors before any successful connection
           console.error('[CLIENT] Connection failed to establish');
           clearTimeout(connectionTimeout);
           setError('Failed to establish connection. Please try again.');
-          setIsLoading(false); // Ensure loading state is cleared
+          setIsLoading(false);
           eventSource.close();
         } else if (!hasReceivedMessage) {
-          // Handle errors after connection but before any messages
           console.error('[CLIENT] Connected but no messages received');
           setError(
             'Connected but failed to receive response. Please try again.'
           );
-          setIsLoading(false); // Ensure loading state is cleared
+          setIsLoading(false);
           eventSource.close();
         }
-        // If we've received messages, don't close on error - wait for server done/error
       });
 
-      // Set up connection timeout - only for initial connection
       const connectionTimeout = setTimeout(() => {
         console.error('[CLIENT] Initial connection timeout');
         if (!isConnectionEstablished) {
@@ -201,16 +214,15 @@ export function Chat() {
             eventSource.close();
           }
         }
-      }, 20000); // 20 second timeout for initial connection
+      }, 20000);
 
-      // Add cleanup on component unmount
       return () => {
         console.log('[CLIENT] Cleaning up EventSource connection');
         clearTimeout(connectionTimeout);
         if (eventSource.readyState !== EventSource.CLOSED) {
           eventSource.close();
         }
-        setIsLoading(false); // Ensure loading state is cleared on unmount
+        setIsLoading(false);
       };
     } catch (error) {
       console.error('[CLIENT] Error in message handler:', error);
@@ -220,58 +232,64 @@ export function Chat() {
   };
 
   return (
-    <div className="flex flex-col h-screen max-w-3xl mx-auto p-4">
-      {error && (
-        <div
-          role="alert"
-          className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4"
-        >
-          {error}
-        </div>
-      )}
-      <div className="flex-1 overflow-y-auto mb-4 space-y-4">
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`p-4 rounded-lg ${
-              msg.role === 'user'
-                ? 'bg-blue-100 ml-auto max-w-[80%]'
-                : 'bg-gray-100 mr-auto max-w-[80%]'
-            }`}
-          >
-            <div className="text-sm font-semibold mb-1">
-              {msg.role === 'user'
-                ? 'You'
-                : msg.role === 'system'
-                ? 'System'
-                : 'Assistant'}
+    <div className="h-[calc(100vh-2rem)]">
+      <Card className="h-full">
+        <CardHeader>
+          <CardTitle>AI Chat</CardTitle>
+          {error && (
+            <div className="text-sm text-destructive mt-2" role="alert">
+              {error}
             </div>
-            <div className="whitespace-pre-wrap">{msg.content}</div>
-          </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
-
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyPress={e =>
-            e.key === 'Enter' && !isLoading && sendMessage(input)
-          }
-          placeholder="Type your message..."
-          disabled={isLoading || !sessionId}
-          className="flex-1 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <button
-          onClick={() => sendMessage(input)}
-          disabled={isLoading || !sessionId || !input.trim()}
-          className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isLoading ? 'Sending...' : 'Send'}
-        </button>
-      </div>
+          )}
+        </CardHeader>
+        <CardContent className="flex-1 overflow-y-auto space-y-4">
+          {messages.map((m, index) => (
+            <div
+              key={index}
+              className={`${m.role === 'user' ? 'text-right' : 'text-left'} ${
+                m.role === 'system' ? 'text-center' : ''
+              }`}
+            >
+              <span
+                className={`inline-block p-2 rounded-lg ${
+                  m.role === 'user'
+                    ? 'bg-primary text-primary-foreground'
+                    : m.role === 'system'
+                    ? 'bg-muted text-muted-foreground'
+                    : 'bg-secondary text-secondary-foreground'
+                }`}
+              >
+                {m.content}
+              </span>
+            </div>
+          ))}
+          {isLoading && (
+            <div className="text-left">
+              <span className="inline-block p-2 rounded-lg bg-muted text-muted-foreground">
+                AI is typing...
+              </span>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </CardContent>
+        <CardFooter className="border-t bg-card">
+          <form onSubmit={handleSubmit} className="flex w-full space-x-2">
+            <Input
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              placeholder="Type your message..."
+              className="flex-grow"
+              disabled={!sessionId || isLoading}
+            />
+            <Button
+              type="submit"
+              disabled={!sessionId || isLoading || !input.trim()}
+            >
+              Send
+            </Button>
+          </form>
+        </CardFooter>
+      </Card>
     </div>
   );
 }
