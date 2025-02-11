@@ -20,7 +20,7 @@ describe('Chat Component', () => {
     vi.stubEnv('NEXT_PUBLIC_SYSTEM_PROMPT', 'You are a helpful assistant.');
 
     // Setup fetch mock for session initialization
-    (global.fetch as jest.Mock).mockResolvedValue({
+    (global.fetch as vi.Mock).mockResolvedValue({
       ok: true,
       json: () =>
         Promise.resolve({
@@ -190,7 +190,7 @@ describe('Chat Component', () => {
     });
 
     // Send button should show loading state
-    expect(screen.getByText('Sending...')).toBeInTheDocument();
+    expect(screen.getByText('AI is typing...')).toBeInTheDocument();
     expect(sendButton).toBeDisabled();
     expect(input).toBeDisabled();
 

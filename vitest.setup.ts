@@ -1,8 +1,17 @@
 import '@testing-library/jest-dom';
-import { vi, expect, afterEach } from 'vitest';
+import { vi, expect, afterEach, beforeEach } from 'vitest';
 import { TextEncoder, TextDecoder } from 'util';
 import { cleanup } from '@testing-library/react';
-import matchers from '@testing-library/jest-dom/matchers';
+import * as matchers from '@testing-library/jest-dom/matchers';
+
+// Configure React
+import React from 'react';
+import { configure } from '@testing-library/react';
+
+configure({ testIdAttribute: 'data-testid' });
+
+// Add React to global scope
+global.React = React;
 
 // Mock fetch globally
 global.fetch = vi.fn();
