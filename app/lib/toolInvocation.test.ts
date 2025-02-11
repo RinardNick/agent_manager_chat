@@ -6,7 +6,7 @@ describe('Tool Invocation', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    toolManager = new ToolInvocationManager();
+    toolManager = new ToolInvocationManager(2); // Set max_tool_calls to 2
     global.fetch = vi.fn();
   });
 
@@ -126,5 +126,80 @@ describe('Tool Invocation', () => {
     await expect(
       toolManager.invokeToolOnServer('http://localhost:3001', toolCall)
     ).rejects.toThrow('Tool invocation failed: Failed to invoke tool');
+  });
+
+  // New tests for tool invocation limiting
+  it('should track and limit tool invocations', async () => {
+    const toolCall = {
+      name: 'readFile',
+      args: { path: '/path/to/file' },
+    };
+
+    (global.fetch as Mock).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ content: 'file contents' }),
+    });
+
+    // First invocation should succeed
+    await toolManager.invokeToolOnServer('http://localhost:3001', toolCall);
+    expect(toolManager.getToolCallCount()).toBe(1);
+
+    // Second invocation should succeed
+    await toolManager.invokeToolOnServer('http://localhost:3001', toolCall);
+    expect(toolManager.getToolCallCount()).toBe(2);
+
+    // Third invocation should fail
+    await expect(
+      toolManager.invokeToolOnServer('http://localhost:3001', toolCall)
+    ).rejects.toThrow('Tool call limit reached');
+  });
+
+  it('should provide a final message when tool limit is reached', () => {
+    const toolCall = {
+      name: 'readFile',
+      args: { path: '/path/to/file' },
+    };
+
+    const conversation = [
+      { role: 'user', content: 'Please read the file' },
+      { role: 'assistant', content: 'I will read the file for you.' },
+    ];
+
+    // Simulate reaching the tool call limit
+    toolManager.invokeToolOnServer('http://localhost:3001', toolCall);
+    toolManager.invokeToolOnServer('http://localhost:3001', toolCall);
+
+    const finalMessage = toolManager.getFinalMessage();
+    expect(finalMessage).toBeDefined();
+    expect(finalMessage.role).toBe('assistant');
+    expect(finalMessage.content).toContain('tool call limit');
+  });
+
+  it('should log when tool limit is reached', async () => {
+    const consoleSpy = vi.spyOn(console, 'log');
+    const toolCall = {
+      name: 'readFile',
+      args: { path: '/path/to/file' },
+    };
+
+    (global.fetch as Mock).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ content: 'file contents' }),
+    });
+
+    // First two invocations
+    await toolManager.invokeToolOnServer('http://localhost:3001', toolCall);
+    await toolManager.invokeToolOnServer('http://localhost:3001', toolCall);
+
+    // Third invocation should fail
+    try {
+      await toolManager.invokeToolOnServer('http://localhost:3001', toolCall);
+    } catch (error) {
+      // Expected error
+    }
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Tool call limit reached')
+    );
   });
 });

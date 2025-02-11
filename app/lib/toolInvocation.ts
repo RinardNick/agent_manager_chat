@@ -9,6 +9,13 @@ interface Message {
 }
 
 export class ToolInvocationManager {
+  private toolCallCount: number = 0;
+  private readonly maxToolCalls: number;
+
+  constructor(maxToolCalls: number = 10) {
+    this.maxToolCalls = maxToolCalls;
+  }
+
   public detectToolCall(llmResponse: string): ToolCall | null {
     const match = llmResponse.match(/<tool_call>\s*([\s\S]+?)\s*<\/tool_call>/);
     if (!match) return null;
@@ -40,6 +47,12 @@ export class ToolInvocationManager {
     toolCall: ToolCall
   ): Promise<any> {
     try {
+      // Check if we've reached the tool call limit
+      if (this.toolCallCount >= this.maxToolCalls) {
+        console.log('Tool call limit reached');
+        throw new Error('Tool call limit reached');
+      }
+
       console.log('Tool invocation:', {
         tool: toolCall.name,
         arguments: toolCall.args,
@@ -53,6 +66,8 @@ export class ToolInvocationManager {
       if (!response.ok) {
         throw new Error(`Server responded with status ${response.status}`);
       }
+
+      this.toolCallCount++;
 
       return await response.json();
     } catch (error) {
@@ -75,5 +90,17 @@ export class ToolInvocationManager {
         content: toolOutput.content,
       },
     ];
+  }
+
+  public getToolCallCount(): number {
+    return this.toolCallCount;
+  }
+
+  public getFinalMessage(): Message {
+    return {
+      role: 'assistant',
+      content:
+        'I have reached the tool call limit. I can only use tools a limited number of times per session.',
+    };
   }
 }
