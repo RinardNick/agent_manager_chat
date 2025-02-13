@@ -3,6 +3,7 @@ import {
   SessionManager as TSMCPSessionManager,
   LLMConfig,
   ChatSession,
+  ServerConfig,
 } from '@rinardnick/ts-mcp-client';
 import { loadConfig } from './configLoader';
 import { SessionManager } from './sessionManager';
@@ -21,8 +22,8 @@ describe('Session Initialization', () => {
       llm: {
         type: 'claude',
         model: 'claude-3-sonnet-20240229',
-        apiKey: 'test-key',
-        systemPrompt: 'You are a helpful assistant.',
+        api_key: 'test-key',
+        system_prompt: 'You are a helpful assistant.',
       },
       max_tool_calls: 10,
       servers: {
@@ -41,6 +42,7 @@ describe('Session Initialization', () => {
       id: 'test-session',
       mcpClient: {
         tools: ['readFile', 'writeFile'],
+        configure: vi.fn().mockResolvedValue(undefined),
       },
     } as unknown as ChatSession;
 
@@ -65,8 +67,8 @@ describe('Session Initialization', () => {
     // Convert config to LLMConfig format
     const llmConfig: LLMConfig = {
       type: mockConfig.llm.type,
-      api_key: mockConfig.llm.apiKey,
-      system_prompt: mockConfig.llm.systemPrompt,
+      api_key: mockConfig.llm.api_key,
+      system_prompt: mockConfig.llm.system_prompt,
       model: mockConfig.llm.model,
     };
 
@@ -84,8 +86,8 @@ describe('Session Initialization', () => {
       llm: {
         type: 'claude',
         model: 'claude-3-sonnet-20240229',
-        apiKey: 'test-key',
-        systemPrompt: 'You are a helpful assistant.',
+        api_key: 'test-key',
+        system_prompt: 'You are a helpful assistant.',
       },
       max_tool_calls: 10,
       servers: {
@@ -102,8 +104,8 @@ describe('Session Initialization', () => {
     // Convert config to LLMConfig format
     const llmConfig: LLMConfig = {
       type: mockConfig.llm.type,
-      api_key: mockConfig.llm.apiKey,
-      system_prompt: mockConfig.llm.systemPrompt,
+      api_key: mockConfig.llm.api_key,
+      system_prompt: mockConfig.llm.system_prompt,
       model: mockConfig.llm.model,
     };
 
@@ -133,5 +135,72 @@ describe('Session Initialization', () => {
     await expect(sessionManager.initializeSession(llmConfig)).rejects.toThrow(
       'Failed to initialize server'
     );
+  });
+
+  it('should configure MCP client with servers and tool call limits', async () => {
+    // Mock config
+    const mockConfig = {
+      llm: {
+        type: 'claude',
+        model: 'claude-3-sonnet-20240229',
+        api_key: 'test-key',
+        system_prompt: 'You are a helpful assistant.',
+      },
+      max_tool_calls: 5,
+      servers: {
+        filesystem: {
+          command: 'npx',
+          args: [],
+          env: {},
+        },
+      },
+    };
+
+    // Mock session response
+    const mockSession = {
+      id: 'test-session',
+      mcpClient: {
+        tools: ['readFile', 'writeFile'],
+        configure: vi.fn().mockResolvedValue(undefined),
+      },
+    } as unknown as ChatSession;
+
+    const mockInitializeSession = vi.fn().mockResolvedValue(mockSession);
+    vi.mocked(TSMCPSessionManager).mockImplementation(
+      () =>
+        ({
+          initializeSession: mockInitializeSession,
+          anthropic: {},
+          processToolCall: vi.fn(),
+          handleToolCallLimit: vi.fn(),
+          sendMessage: vi.fn(),
+          getSession: vi.fn(),
+          getSessions: vi.fn(),
+          deleteSession: vi.fn(),
+        } as unknown as TSMCPSessionManager)
+    );
+
+    // Create session manager
+    const sessionManager = new SessionManager();
+
+    // Convert config to LLMConfig format
+    const llmConfig: LLMConfig = {
+      type: mockConfig.llm.type,
+      api_key: mockConfig.llm.api_key,
+      system_prompt: mockConfig.llm.system_prompt,
+      model: mockConfig.llm.model,
+    };
+
+    const session = await sessionManager.initializeSession(
+      llmConfig,
+      mockConfig.servers,
+      mockConfig.max_tool_calls
+    );
+
+    // Verify MCP client was configured with servers and tool call limits
+    expect(session.mcpClient?.configure).toHaveBeenCalledWith({
+      servers: mockConfig.servers,
+      max_tool_calls: mockConfig.max_tool_calls,
+    });
   });
 });
