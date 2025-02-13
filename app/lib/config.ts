@@ -1,18 +1,12 @@
-export interface LLMConfig {
-  type: string;
-  model: string;
-  apiKey: string;
-  systemPrompt: string;
-}
-
-export interface ServerConfig {
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-}
+import { LLMConfig, ServerConfig } from '@rinardnick/ts-mcp-client';
 
 export interface MCPConfig {
-  llm: LLMConfig;
+  llm: {
+    type: string;
+    api_key: string;
+    system_prompt: string;
+    model: string;
+  };
   max_tool_calls: number;
   servers: Record<string, ServerConfig>;
 }
@@ -39,12 +33,12 @@ export function validateConfig(config: unknown): MCPConfig {
   const llmConfig = typedConfig.llm as Record<string, unknown>;
   if (
     typeof llmConfig.type !== 'string' ||
-    typeof llmConfig.model !== 'string' ||
-    typeof llmConfig.apiKey !== 'string' ||
-    typeof llmConfig.systemPrompt !== 'string'
+    typeof llmConfig.api_key !== 'string' ||
+    typeof llmConfig.system_prompt !== 'string' ||
+    typeof llmConfig.model !== 'string'
   ) {
     throw new ConfigValidationError(
-      'LLM configuration must include type, model, apiKey, and systemPrompt as strings'
+      'LLM configuration must include type, api_key, system_prompt, and model as strings'
     );
   }
 
@@ -111,7 +105,12 @@ export function validateConfig(config: unknown): MCPConfig {
   }
 
   return {
-    llm: typedConfig.llm as LLMConfig,
+    llm: {
+      type: llmConfig.type as string,
+      api_key: llmConfig.api_key as string,
+      system_prompt: llmConfig.system_prompt as string,
+      model: llmConfig.model as string,
+    },
     max_tool_calls: typedConfig.max_tool_calls as number,
     servers: validatedServers,
   };

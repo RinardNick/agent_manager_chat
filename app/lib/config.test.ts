@@ -7,8 +7,8 @@ describe('Configuration Validation', () => {
       llm: {
         type: 'claude',
         model: 'claude-3-sonnet-20240229',
-        apiKey: 'test-key',
-        systemPrompt: 'You are a helpful assistant.',
+        api_key: 'test-key',
+        system_prompt: 'You are a helpful assistant.',
       },
       max_tool_calls: 10,
       servers: {
@@ -36,6 +36,10 @@ describe('Configuration Validation', () => {
     expect(validatedConfig.max_tool_calls).toBe(10);
     expect(validatedConfig.servers).toBeDefined();
     expect(Object.keys(validatedConfig.servers)).toHaveLength(2);
+    expect(validatedConfig.llm.api_key).toBe('test-key');
+    expect(validatedConfig.llm.system_prompt).toBe(
+      'You are a helpful assistant.'
+    );
   });
 
   it('should reject configuration without servers section', () => {
@@ -43,8 +47,8 @@ describe('Configuration Validation', () => {
       llm: {
         type: 'claude',
         model: 'claude-3-sonnet-20240229',
-        apiKey: 'test-key',
-        systemPrompt: 'You are a helpful assistant.',
+        api_key: 'test-key',
+        system_prompt: 'You are a helpful assistant.',
       },
       max_tool_calls: 10,
     };
@@ -59,8 +63,8 @@ describe('Configuration Validation', () => {
       llm: {
         type: 'claude',
         model: 'claude-3-sonnet-20240229',
-        apiKey: 'test-key',
-        systemPrompt: 'You are a helpful assistant.',
+        api_key: 'test-key',
+        system_prompt: 'You are a helpful assistant.',
       },
       max_tool_calls: 10,
       servers: {
@@ -82,10 +86,34 @@ describe('Configuration Validation', () => {
       llm: {
         type: 'claude',
         model: 'claude-3-sonnet-20240229',
-        apiKey: 'test-key',
-        systemPrompt: 'You are a helpful assistant.',
+        api_key: 'test-key',
+        system_prompt: 'You are a helpful assistant.',
       },
       max_tool_calls: -1,
+      servers: {
+        fileSystem: {
+          command: 'node',
+          args: ['server.js'],
+          env: {
+            PORT: '3001',
+          },
+        },
+      },
+    };
+
+    expect(() => validateConfig(config)).toThrow(
+      /max_tool_calls must be a non-negative number/i
+    );
+  });
+
+  it('should reject configuration with missing max_tool_calls', () => {
+    const config = {
+      llm: {
+        type: 'claude',
+        model: 'claude-3-sonnet-20240229',
+        api_key: 'test-key',
+        system_prompt: 'You are a helpful assistant.',
+      },
       servers: {
         fileSystem: {
           command: 'node',
