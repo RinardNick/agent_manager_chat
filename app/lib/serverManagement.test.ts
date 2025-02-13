@@ -130,4 +130,96 @@ describe('Server Management through Session Manager', () => {
 
     expect(session.mcpClient?.tools).toEqual(['tool1', 'tool2']);
   });
+
+  describe('Tool Call Limits', () => {
+    it('should enforce tool call limits from client configuration', async () => {
+      const maxToolCalls = 2;
+      const mockSession = {
+        mcpClient: {
+          configure: vi.fn().mockResolvedValue(undefined),
+          tools: ['tool1', 'tool2'],
+          invoke: vi
+            .fn()
+            .mockResolvedValueOnce({ result: 'first call' })
+            .mockResolvedValueOnce({ result: 'second call' })
+            .mockRejectedValueOnce(new Error('Tool call limit reached')),
+        },
+      };
+
+      const { SessionManager: MockSessionManager } = await import(
+        '@rinardnick/ts-mcp-client'
+      );
+      const mockInstance = new MockSessionManager();
+      mockInstance.initializeSession = vi.fn().mockResolvedValue(mockSession);
+      vi.mocked(MockSessionManager).mockImplementation(() => mockInstance);
+
+      sessionManager = new SessionManager();
+      const session = await sessionManager.initializeSession(
+        llmConfig,
+        mockServers,
+        maxToolCalls
+      );
+
+      // Verify client was configured with tool call limit
+      expect(session.mcpClient?.configure).toHaveBeenCalledWith({
+        servers: mockServers,
+        max_tool_calls: maxToolCalls,
+      });
+
+      // Verify tool call limit is enforced by client
+      await expect(session.mcpClient?.invoke('tool1', {})).resolves.toEqual({
+        result: 'first call',
+      });
+      await expect(session.mcpClient?.invoke('tool1', {})).resolves.toEqual({
+        result: 'second call',
+      });
+      await expect(session.mcpClient?.invoke('tool1', {})).rejects.toThrow(
+        'Tool call limit reached'
+      );
+    });
+
+    it('should handle tool limit reached events gracefully', async () => {
+      const maxToolCalls = 1;
+      const mockSession = {
+        mcpClient: {
+          configure: vi.fn().mockResolvedValue(undefined),
+          tools: ['tool1'],
+          invoke: vi
+            .fn()
+            .mockResolvedValueOnce({ result: 'first call' })
+            .mockRejectedValueOnce(new Error('Tool call limit reached')),
+        },
+      };
+
+      const { SessionManager: MockSessionManager } = await import(
+        '@rinardnick/ts-mcp-client'
+      );
+      const mockInstance = new MockSessionManager();
+      mockInstance.initializeSession = vi.fn().mockResolvedValue(mockSession);
+      vi.mocked(MockSessionManager).mockImplementation(() => mockInstance);
+
+      sessionManager = new SessionManager();
+      const session = await sessionManager.initializeSession(
+        llmConfig,
+        mockServers,
+        maxToolCalls
+      );
+
+      // First tool call should succeed
+      await expect(session.mcpClient?.invoke('tool1', {})).resolves.toEqual({
+        result: 'first call',
+      });
+
+      // Second tool call should fail with a clear error message
+      await expect(session.mcpClient?.invoke('tool1', {})).rejects.toThrow(
+        'Tool call limit reached'
+      );
+
+      // Verify the session was configured with the correct limit
+      expect(session.mcpClient?.configure).toHaveBeenCalledWith({
+        servers: mockServers,
+        max_tool_calls: maxToolCalls,
+      });
+    });
+  });
 });
