@@ -13,8 +13,10 @@
     "test:ui": "vitest --ui"
   },
   "dependencies": {
+    "@modelcontextprotocol/server-filesystem": "^2025.1.14",
     "@radix-ui/react-slot": "^1.1.2",
-    "@rinardnick/ts-mcp-client": "0.2.1",
+    "@rinardnick/mcp-terminal": "^0.1.1",
+    "@rinardnick/ts-mcp-client": "file:..",
     "@types/uuid": "^10.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

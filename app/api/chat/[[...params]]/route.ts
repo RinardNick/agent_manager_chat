@@ -1,15 +1,59 @@
-import { SessionManager } from '@rinardnick/ts-mcp-client';
+import { SessionManager, LLMConfig } from '@rinardnick/ts-mcp-client';
 import { NextRequest, NextResponse } from 'next/server';
+import { getDefaultConfigPath } from '../../../lib/configLoader';
+import { loadConfig } from '../../../lib/configLoader';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const preferredRegion = 'auto';
 
-// Create a singleton instance of the session manager
-const sessionManager = new SessionManager();
+// Initialize session manager
+let sessionManager: SessionManager;
+
+async function initializeIfNeeded() {
+  if (!sessionManager) {
+    try {
+      // Load configuration
+      const configPath = await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+
+      // Create session manager
+      sessionManager = new SessionManager();
+
+      // Initialize session with LLM config
+      const llmConfig: LLMConfig = {
+        type: config.llm.type,
+        api_key: config.llm.api_key,
+        system_prompt: config.llm.system_prompt,
+        model: config.llm.model,
+      };
+
+      // Initialize session
+      const session = await sessionManager.initializeSession(llmConfig);
+
+      // Configure MCP client if available
+      if (session.mcpClient) {
+        await session.mcpClient.configure({
+          servers: config.servers,
+          max_tool_calls: config.max_tool_calls,
+        });
+      }
+
+      console.log('[INIT] Session manager initialized successfully');
+      if (session.mcpClient) {
+        console.log('[INIT] Available tools:', session.mcpClient.tools);
+      }
+    } catch (error) {
+      console.error('[INIT] Failed to initialize:', error);
+      throw error;
+    }
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
+    await initializeIfNeeded();
+
     const url = new URL(request.url);
     const path = url.pathname.replace('/api/chat', '');
     const match = path.match(/^\/session\/([^/]+)\/stream$/);
@@ -86,6 +130,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    await initializeIfNeeded();
+
     const body = await request.json();
     const url = new URL(request.url);
     const path = url.pathname.replace('/api/chat', '');

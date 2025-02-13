@@ -1,36 +1,139 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MCP Host Application
+
+This is a Next.js application that demonstrates how to use the TypeScript MCP Client (`@rinardnick/ts-mcp-client`) to create an AI assistant with tool capabilities.
+
+## Features
+
+- **Configuration Management**: Load and validate MCP client configuration from a JSON file
+- **Server Management**: Automatically launch and manage MCP tool servers
+- **Chat Interface**: Stream-based chat interface with the AI assistant
+- **Tool Integration**: Seamless integration of tool capabilities from MCP servers
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node.js 18 or higher
+- npm or yarn
+
+### Installation
+
+1. Clone this repository
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+### Configuration
+
+Create a `config.json` file in the root directory with the following structure:
+
+```json
+{
+  "llm": {
+    "type": "claude",
+    "model": "claude-3-sonnet-20240229",
+    "apiKey": "YOUR_API_KEY_HERE",
+    "systemPrompt": "You are a helpful assistant."
+  },
+  "max_tool_calls": 10,
+  "servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "YOUR_FILESYSTEM_WORK_DIR_HERE"
+      ],
+      "env": {}
+    },
+    "terminal": {
+      "command": "npx",
+      "args": [
+        "@rinardnick/mcp-terminal",
+        "--allowed-commands",
+        "[go,python3,uv,npm,npx,git,ls,cd,touch,mv,pwd,mkdir]"
+      ],
+      "env": {}
+    }
+  }
+}
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Running the Application
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Start the development server:
+   ```bash
+   npm run dev
+   ```
+2. Open [http://localhost:3000](http://localhost:3000) in your browser
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## API Endpoints
 
-## Learn More
+### Chat Session Management
 
-To learn more about Next.js, take a look at the following resources:
+- `POST /api/chat/session`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+  - Create a new chat session
+  - Body: `{ "config": LLMConfig }`
+  - Returns: `{ "sessionId": string, "messages": Message[] }`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `POST /api/chat/session/{sessionId}/message`
 
-## Deploy on Vercel
+  - Send a message in an existing session
+  - Body: `{ "message": string }`
+  - Returns: Message response
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- `GET /api/chat/session/{sessionId}/stream`
+  - Stream messages in real-time
+  - Query params: `message=string`
+  - Returns: Server-sent events stream
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Error Handling
+
+The application includes comprehensive error handling for:
+
+- Configuration validation
+- Server initialization
+- Session management
+- Message processing
+- Tool invocation
+
+All errors are logged and streamed back to the client with appropriate context.
+
+## Architecture
+
+The host application is built with:
+
+- Next.js for the web framework
+- `@rinardnick/ts-mcp-client` for MCP client functionality
+- Server-sent events (SSE) for real-time message streaming
+- Child process management for MCP tool servers
+
+Key components:
+
+- `SessionManager`: Manages chat sessions and tool invocations
+- `ServerManager`: Handles MCP server lifecycle
+- `ConfigLoader`: Loads and validates configuration
+
+## Development
+
+### Running Tests
+
+```bash
+npm test
+```
+
+### Linting
+
+```bash
+npm run lint
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a new Pull Request

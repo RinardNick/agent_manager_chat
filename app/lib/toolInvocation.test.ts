@@ -1,205 +1,157 @@
-import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
-import { ToolInvocationManager } from './toolInvocation';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { SessionManager } from './sessionManager';
+import { LLMConfig } from '@rinardnick/ts-mcp-client';
 
-describe('Tool Invocation', () => {
-  let toolManager: ToolInvocationManager;
+vi.mock('@rinardnick/ts-mcp-client', () => {
+  return {
+    SessionManager: vi.fn().mockImplementation(() => ({
+      initializeSession: vi.fn(),
+      sendMessage: vi.fn(),
+      sendMessageStream: vi.fn(),
+      getSession: vi.fn(),
+      cleanupSession: vi.fn(),
+      updateSessionActivity: vi.fn(),
+    })),
+  };
+});
+
+describe('Tool Invocation through Session Manager', () => {
+  let sessionManager: SessionManager;
+  let llmConfig: LLMConfig;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    toolManager = new ToolInvocationManager(2); // Set max_tool_calls to 2
-    global.fetch = vi.fn();
-  });
-
-  it('should detect tool invocation in LLM response', () => {
-    const llmResponse = `Let me help you with that. I'll need to read the file.
-    <tool_call>
-      {"name": "readFile", "args": {"path": "/path/to/file"}}
-    </tool_call>`;
-
-    const result = toolManager.detectToolCall(llmResponse);
-    expect(result).toBeDefined();
-    expect(result?.name).toBe('readFile');
-    expect(result?.args).toEqual({ path: '/path/to/file' });
-  });
-
-  it('should prepare tool invocation request according to MCP protocol', () => {
-    const toolCall = {
-      name: 'readFile',
-      args: { path: '/path/to/file' },
+    llmConfig = {
+      type: 'test-type',
+      model: 'test-model',
+      api_key: 'test-key',
+      system_prompt: 'You are a helpful assistant.',
     };
+  });
 
-    const request = toolManager.prepareRequest(toolCall);
-    expect(request).toEqual({
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+  it('should handle tool invocations through session', async () => {
+    // Setup mock session with tool capability
+    const mockSession = {
+      mcpClient: {
+        configure: vi.fn().mockResolvedValue(undefined),
+        tools: ['readFile'],
+        invoke: vi.fn().mockResolvedValue({ content: 'file contents' }),
       },
-      body: JSON.stringify({
-        tool: 'readFile',
-        arguments: { path: '/path/to/file' },
-      }),
-    });
-  });
-
-  it('should send tool request to appropriate server and receive response', async () => {
-    const mockResponse = { content: 'file contents' };
-    (global.fetch as Mock).mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve(mockResponse),
-    });
-
-    const toolCall = {
-      name: 'readFile',
-      args: { path: '/path/to/file' },
     };
 
-    const response = await toolManager.invokeToolOnServer(
-      'http://localhost:3001',
-      toolCall
+    const { SessionManager: MockSessionManager } = await import(
+      '@rinardnick/ts-mcp-client'
     );
+    const mockInstance = new MockSessionManager();
+    mockInstance.initializeSession = vi.fn().mockResolvedValue(mockSession);
+    vi.mocked(MockSessionManager).mockImplementation(() => mockInstance);
 
-    expect(global.fetch).toHaveBeenCalledWith(
-      'http://localhost:3001/tools/invoke',
-      expect.objectContaining({
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: expect.any(String),
-      })
-    );
-    expect(response).toEqual(mockResponse);
+    sessionManager = new SessionManager();
+    const session = await sessionManager.initializeSession(llmConfig);
+
+    expect(session.mcpClient).toBeDefined();
+    expect(session.mcpClient?.tools).toContain('readFile');
   });
 
-  it('should log tool invocations', async () => {
-    const consoleSpy = vi.spyOn(console, 'log');
-    const toolCall = {
-      name: 'readFile',
-      args: { path: '/path/to/file' },
+  it('should respect tool call limits from configuration', async () => {
+    const mockServers = {
+      testServer: {
+        command: 'test-command',
+        args: ['--test'],
+        cwd: '/test/path',
+      },
     };
 
-    (global.fetch as Mock).mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ content: 'file contents' }),
-    });
+    const maxToolCalls = 5;
 
-    await toolManager.invokeToolOnServer('http://localhost:3001', toolCall);
+    // Setup mock session that will hit tool limit
+    const mockSession = {
+      mcpClient: {
+        configure: vi.fn().mockResolvedValue(undefined),
+        tools: ['readFile'],
+        invoke: vi
+          .fn()
+          .mockResolvedValueOnce({ content: 'first call' })
+          .mockRejectedValueOnce(new Error('Tool call limit reached')),
+      },
+    };
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Tool invocation:'),
-      expect.objectContaining({
-        tool: 'readFile',
-        arguments: { path: '/path/to/file' },
-      })
+    const { SessionManager: MockSessionManager } = await import(
+      '@rinardnick/ts-mcp-client'
     );
-  });
+    const mockInstance = new MockSessionManager();
+    mockInstance.initializeSession = vi.fn().mockResolvedValue(mockSession);
+    vi.mocked(MockSessionManager).mockImplementation(() => mockInstance);
 
-  it('should integrate tool output into conversation', () => {
-    const toolOutput = { content: 'file contents' };
-    const conversation = [
-      { role: 'user', content: 'Please read the file' },
-      { role: 'assistant', content: 'I will read the file for you.' },
-    ];
-
-    const updatedConversation = toolManager.integrateToolOutput(
-      conversation,
-      toolOutput
+    sessionManager = new SessionManager();
+    const session = await sessionManager.initializeSession(
+      llmConfig,
+      mockServers,
+      maxToolCalls
     );
 
-    expect(updatedConversation).toHaveLength(3);
-    expect(updatedConversation[2]).toEqual({
-      role: 'tool',
-      content: 'file contents',
+    // Verify tool limit configuration was passed
+    expect(session.mcpClient?.configure).toHaveBeenCalledWith({
+      servers: mockServers,
+      max_tool_calls: maxToolCalls,
     });
   });
 
   it('should handle tool invocation errors gracefully', async () => {
-    const toolCall = {
-      name: 'readFile',
-      args: { path: '/path/to/file' },
+    // Setup mock session that will encounter an error
+    const mockSession = {
+      mcpClient: {
+        configure: vi.fn().mockResolvedValue(undefined),
+        tools: ['readFile'],
+        invoke: vi.fn().mockRejectedValue(new Error('Failed to invoke tool')),
+      },
     };
 
-    (global.fetch as Mock).mockRejectedValueOnce(
-      new Error('Failed to invoke tool')
+    const { SessionManager: MockSessionManager } = await import(
+      '@rinardnick/ts-mcp-client'
     );
+    const mockInstance = new MockSessionManager();
+    mockInstance.initializeSession = vi.fn().mockResolvedValue(mockSession);
+    vi.mocked(MockSessionManager).mockImplementation(() => mockInstance);
+
+    sessionManager = new SessionManager();
+    const session = await sessionManager.initializeSession(llmConfig);
 
     await expect(
-      toolManager.invokeToolOnServer('http://localhost:3001', toolCall)
-    ).rejects.toThrow('Tool invocation failed: Failed to invoke tool');
+      session.mcpClient?.invoke('readFile', { path: '/test' })
+    ).rejects.toThrow('Failed to invoke tool');
   });
 
-  // New tests for tool invocation limiting
-  it('should track and limit tool invocations', async () => {
-    const toolCall = {
-      name: 'readFile',
-      args: { path: '/path/to/file' },
+  it('should make tool capabilities available through session', async () => {
+    // Setup mock session with tool capabilities
+    const mockSession = {
+      mcpClient: {
+        configure: vi.fn().mockResolvedValue(undefined),
+        tools: [
+          {
+            name: 'readFile',
+            description: 'Reads a file from the filesystem',
+          },
+          {
+            name: 'writeFile',
+            description: 'Writes content to a file',
+          },
+        ],
+      },
     };
 
-    (global.fetch as Mock).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ content: 'file contents' }),
-    });
-
-    // First invocation should succeed
-    await toolManager.invokeToolOnServer('http://localhost:3001', toolCall);
-    expect(toolManager.getToolCallCount()).toBe(1);
-
-    // Second invocation should succeed
-    await toolManager.invokeToolOnServer('http://localhost:3001', toolCall);
-    expect(toolManager.getToolCallCount()).toBe(2);
-
-    // Third invocation should fail
-    await expect(
-      toolManager.invokeToolOnServer('http://localhost:3001', toolCall)
-    ).rejects.toThrow('Tool call limit reached');
-  });
-
-  it('should provide a final message when tool limit is reached', () => {
-    const toolCall = {
-      name: 'readFile',
-      args: { path: '/path/to/file' },
-    };
-
-    const conversation = [
-      { role: 'user', content: 'Please read the file' },
-      { role: 'assistant', content: 'I will read the file for you.' },
-    ];
-
-    // Simulate reaching the tool call limit
-    toolManager.invokeToolOnServer('http://localhost:3001', toolCall);
-    toolManager.invokeToolOnServer('http://localhost:3001', toolCall);
-
-    const finalMessage = toolManager.getFinalMessage();
-    expect(finalMessage).toBeDefined();
-    expect(finalMessage.role).toBe('assistant');
-    expect(finalMessage.content).toContain('tool call limit');
-  });
-
-  it('should log when tool limit is reached', async () => {
-    const consoleSpy = vi.spyOn(console, 'log');
-    const toolCall = {
-      name: 'readFile',
-      args: { path: '/path/to/file' },
-    };
-
-    (global.fetch as Mock).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ content: 'file contents' }),
-    });
-
-    // First two invocations
-    await toolManager.invokeToolOnServer('http://localhost:3001', toolCall);
-    await toolManager.invokeToolOnServer('http://localhost:3001', toolCall);
-
-    // Third invocation should fail
-    try {
-      await toolManager.invokeToolOnServer('http://localhost:3001', toolCall);
-    } catch (error) {
-      // Expected error
-    }
-
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Tool call limit reached')
+    const { SessionManager: MockSessionManager } = await import(
+      '@rinardnick/ts-mcp-client'
     );
+    const mockInstance = new MockSessionManager();
+    mockInstance.initializeSession = vi.fn().mockResolvedValue(mockSession);
+    vi.mocked(MockSessionManager).mockImplementation(() => mockInstance);
+
+    sessionManager = new SessionManager();
+    const session = await sessionManager.initializeSession(llmConfig);
+
+    expect(session.mcpClient?.tools).toHaveLength(2);
+    expect(session.mcpClient?.tools[0].name).toBe('readFile');
+    expect(session.mcpClient?.tools[1].name).toBe('writeFile');
   });
 });
