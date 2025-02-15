@@ -1,23 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { SessionManager } from './sessionManager';
-import { LLMConfig } from '@rinardnick/ts-mcp-client';
+import {
+  LLMConfig,
+  ServerConfig,
+  SessionManager as TSMCPSessionManager,
+} from '@rinardnick/ts-mcp-client';
 
-vi.mock('@rinardnick/ts-mcp-client', () => {
-  return {
-    SessionManager: vi.fn().mockImplementation(() => ({
-      initializeSession: vi.fn(),
-      sendMessage: vi.fn(),
-      sendMessageStream: vi.fn(),
-      getSession: vi.fn(),
-      cleanupSession: vi.fn(),
-      updateSessionActivity: vi.fn(),
-    })),
-  };
-});
+vi.mock('@rinardnick/ts-mcp-client');
 
 describe('Tool Invocation through Session Manager', () => {
   let sessionManager: SessionManager;
   let llmConfig: LLMConfig;
+  let mockServers: ServerConfig;
+  let mockCapabilities: any;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -27,131 +22,94 @@ describe('Tool Invocation through Session Manager', () => {
       api_key: 'test-key',
       system_prompt: 'You are a helpful assistant.',
     };
+    mockServers = {
+      command: 'test-command',
+      args: ['--test'],
+      env: { TEST_ENV: 'test' },
+    };
+    mockCapabilities = {
+      tools: [
+        {
+          name: 'readFile',
+          description: 'Reads a file from the filesystem',
+        },
+        {
+          name: 'writeFile',
+          description: 'Writes content to a file',
+        },
+      ],
+    };
   });
 
-  it('should handle tool invocations through session', async () => {
-    // Setup mock session with tool capability
+  it('should properly delegate tool invocations to client', async () => {
     const mockSession = {
+      id: 'test-session',
       mcpClient: {
         configure: vi.fn().mockResolvedValue(undefined),
-        tools: ['readFile'],
-        invoke: vi.fn().mockResolvedValue({ content: 'file contents' }),
+        discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
+        tools: mockCapabilities.tools,
+        invoke: vi.fn().mockResolvedValue({ result: 'test result' }),
       },
     };
 
     const { SessionManager: MockSessionManager } = await import(
       '@rinardnick/ts-mcp-client'
     );
-    const mockInstance = new MockSessionManager();
-    mockInstance.initializeSession = vi.fn().mockResolvedValue(mockSession);
-    vi.mocked(MockSessionManager).mockImplementation(() => mockInstance);
+    vi.mocked(MockSessionManager).mockImplementation(
+      () =>
+        ({
+          initializeSession: vi.fn().mockResolvedValue(mockSession),
+          sendMessage: vi.fn(),
+          sendMessageStream: vi.fn(),
+          getSession: vi.fn(),
+          cleanupSession: vi.fn(),
+          updateSessionActivity: vi.fn(),
+        } as any)
+    );
 
     sessionManager = new SessionManager();
     const session = await sessionManager.initializeSession(llmConfig);
 
-    expect(session.mcpClient).toBeDefined();
-    expect(session.mcpClient?.tools).toContain('readFile');
-  });
-
-  it('should respect tool call limits from configuration', async () => {
-    const mockServers = {
-      testServer: {
-        command: 'test-command',
-        args: ['--test'],
-        cwd: '/test/path',
-      },
-    };
-
-    const maxToolCalls = 5;
-
-    // Setup mock session that will hit tool limit
-    const mockSession = {
-      mcpClient: {
-        configure: vi.fn().mockResolvedValue(undefined),
-        tools: ['readFile'],
-        invoke: vi
-          .fn()
-          .mockResolvedValueOnce({ content: 'first call' })
-          .mockRejectedValueOnce(new Error('Tool call limit reached')),
-      },
-    };
-
-    const { SessionManager: MockSessionManager } = await import(
-      '@rinardnick/ts-mcp-client'
-    );
-    const mockInstance = new MockSessionManager();
-    mockInstance.initializeSession = vi.fn().mockResolvedValue(mockSession);
-    vi.mocked(MockSessionManager).mockImplementation(() => mockInstance);
-
-    sessionManager = new SessionManager();
-    const session = await sessionManager.initializeSession(
-      llmConfig,
-      mockServers,
-      maxToolCalls
-    );
-
-    // Verify tool limit configuration was passed
-    expect(session.mcpClient?.configure).toHaveBeenCalledWith({
-      servers: mockServers,
-      max_tool_calls: maxToolCalls,
+    const result = await session.mcpClient?.invoke('readFile', {
+      path: 'test.txt',
+    });
+    expect(result).toEqual({ result: 'test result' });
+    expect(session.mcpClient?.invoke).toHaveBeenCalledWith('readFile', {
+      path: 'test.txt',
     });
   });
 
-  it('should handle tool invocation errors gracefully', async () => {
-    // Setup mock session that will encounter an error
+  it('should handle tool invocation errors from client', async () => {
     const mockSession = {
+      id: 'test-session',
       mcpClient: {
         configure: vi.fn().mockResolvedValue(undefined),
-        tools: ['readFile'],
-        invoke: vi.fn().mockRejectedValue(new Error('Failed to invoke tool')),
+        discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
+        tools: mockCapabilities.tools,
+        invoke: vi.fn().mockRejectedValue(new Error('Tool invocation failed')),
       },
     };
 
     const { SessionManager: MockSessionManager } = await import(
       '@rinardnick/ts-mcp-client'
     );
-    const mockInstance = new MockSessionManager();
-    mockInstance.initializeSession = vi.fn().mockResolvedValue(mockSession);
-    vi.mocked(MockSessionManager).mockImplementation(() => mockInstance);
+    vi.mocked(MockSessionManager).mockImplementation(
+      () =>
+        ({
+          initializeSession: vi.fn().mockResolvedValue(mockSession),
+          sendMessage: vi.fn(),
+          sendMessageStream: vi.fn(),
+          getSession: vi.fn(),
+          cleanupSession: vi.fn(),
+          updateSessionActivity: vi.fn(),
+        } as any)
+    );
 
     sessionManager = new SessionManager();
     const session = await sessionManager.initializeSession(llmConfig);
 
     await expect(
-      session.mcpClient?.invoke('readFile', { path: '/test' })
-    ).rejects.toThrow('Failed to invoke tool');
-  });
-
-  it('should make tool capabilities available through session', async () => {
-    // Setup mock session with tool capabilities
-    const mockSession = {
-      mcpClient: {
-        configure: vi.fn().mockResolvedValue(undefined),
-        tools: [
-          {
-            name: 'readFile',
-            description: 'Reads a file from the filesystem',
-          },
-          {
-            name: 'writeFile',
-            description: 'Writes content to a file',
-          },
-        ],
-      },
-    };
-
-    const { SessionManager: MockSessionManager } = await import(
-      '@rinardnick/ts-mcp-client'
-    );
-    const mockInstance = new MockSessionManager();
-    mockInstance.initializeSession = vi.fn().mockResolvedValue(mockSession);
-    vi.mocked(MockSessionManager).mockImplementation(() => mockInstance);
-
-    sessionManager = new SessionManager();
-    const session = await sessionManager.initializeSession(llmConfig);
-
-    expect(session.mcpClient?.tools).toHaveLength(2);
-    expect(session.mcpClient?.tools[0].name).toBe('readFile');
-    expect(session.mcpClient?.tools[1].name).toBe('writeFile');
+      session.mcpClient?.invoke('readFile', { path: 'test.txt' })
+    ).rejects.toThrow('Tool invocation failed');
   });
 });

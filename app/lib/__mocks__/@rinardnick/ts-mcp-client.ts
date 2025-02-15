@@ -1,9 +1,31 @@
 import { vi } from 'vitest';
 
+export interface ServerConfig {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+}
+
+export interface LLMConfig {
+  type: string;
+  model: string;
+  api_key: string;
+  system_prompt: string;
+}
+
 const mockSession = {
   id: 'test-session',
   mcpClient: {
     configure: vi.fn().mockResolvedValue(undefined),
+    discoverCapabilities: vi.fn().mockResolvedValue({
+      tools: [
+        {
+          name: 'readFile',
+          description: 'Reads a file from the filesystem',
+        },
+      ],
+    }),
     tools: [
       {
         name: 'readFile',

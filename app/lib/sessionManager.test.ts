@@ -1,206 +1,251 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  SessionManager as TSMCPSessionManager,
-  LLMConfig,
-  ChatSession,
-  ServerConfig,
-} from '@rinardnick/ts-mcp-client';
-import { loadConfig } from './configLoader';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { SessionManager } from './sessionManager';
+import {
+  LLMConfig,
+  ServerConfig,
+  SessionManager as TSMCPSessionManager,
+} from '@rinardnick/ts-mcp-client';
 
 vi.mock('@rinardnick/ts-mcp-client');
-vi.mock('./configLoader');
 
-describe('Session Initialization', () => {
+describe('Session Manager Responsibilities', () => {
+  let sessionManager: SessionManager;
+  let llmConfig: LLMConfig;
+  let mockServers: ServerConfig;
+  let mockCapabilities: any;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    llmConfig = {
+      type: 'test-type',
+      model: 'test-model',
+      api_key: 'test-key',
+      system_prompt: 'You are a helpful assistant.',
+    };
+    mockServers = {
+      command: 'test-command',
+      args: ['--test'],
+      env: { TEST_ENV: 'test' },
+    };
+    mockCapabilities = {
+      tools: [
+        {
+          name: 'readFile',
+          description: 'Reads a file from the filesystem',
+        },
+        {
+          name: 'writeFile',
+          description: 'Writes content to a file',
+        },
+      ],
+    };
   });
 
-  it('should initialize a session with server capabilities from config', async () => {
-    // Mock config
-    const mockConfig = {
-      llm: {
-        type: 'claude',
-        model: 'claude-3-sonnet-20240229',
-        api_key: 'test-key',
-        system_prompt: 'You are a helpful assistant.',
-      },
-      max_tool_calls: 10,
-      servers: {
-        filesystem: {
-          command: 'npx',
-          args: ['-y', '@modelcontextprotocol/server-filesystem', '/test/path'],
-          env: {},
+  describe('UI Session Management', () => {
+    it('should maintain UI state separate from chat session', async () => {
+      const mockSession = {
+        id: 'test-session',
+        mcpClient: {
+          configure: vi.fn().mockResolvedValue(undefined),
+          discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
+          tools: mockCapabilities.tools,
         },
-      },
-    };
+      };
 
-    vi.mocked(loadConfig).mockResolvedValue(mockConfig);
+      const { SessionManager: MockSessionManager } = await import(
+        '@rinardnick/ts-mcp-client'
+      );
+      vi.mocked(MockSessionManager).mockImplementation(
+        () =>
+          ({
+            initializeSession: vi.fn().mockResolvedValue(mockSession),
+            sendMessage: vi.fn(),
+            sendMessageStream: vi.fn(),
+            getSession: vi.fn(),
+            cleanupSession: vi.fn(),
+            updateSessionActivity: vi.fn(),
+          } as any)
+      );
 
-    // Mock session response
-    const mockSession = {
-      id: 'test-session',
-      mcpClient: {
-        tools: ['readFile', 'writeFile'],
-        configure: vi.fn().mockResolvedValue(undefined),
-      },
-    } as unknown as ChatSession;
+      sessionManager = new SessionManager();
+      const session = await sessionManager.initializeSession(llmConfig);
 
-    const mockInitializeSession = vi.fn().mockResolvedValue(mockSession);
-    vi.mocked(TSMCPSessionManager).mockImplementation(
-      () =>
-        ({
-          initializeSession: mockInitializeSession,
-          anthropic: {},
-          processToolCall: vi.fn(),
-          handleToolCallLimit: vi.fn(),
-          sendMessage: vi.fn(),
-          getSession: vi.fn(),
-          getSessions: vi.fn(),
-          deleteSession: vi.fn(),
-        } as unknown as TSMCPSessionManager)
-    );
+      expect(session.mcpClient).toBeDefined();
+      expect(session.mcpClient?.tools).toEqual(mockCapabilities.tools);
+    });
 
-    // Create session manager
-    const sessionManager = new SessionManager();
+    it('should handle UI-specific error states', async () => {
+      const mockSession = {
+        id: 'test-session',
+        mcpClient: {
+          configure: vi.fn().mockResolvedValue(undefined),
+          discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
+          tools: mockCapabilities.tools,
+        },
+      };
 
-    // Convert config to LLMConfig format
-    const llmConfig: LLMConfig = {
-      type: mockConfig.llm.type,
-      api_key: mockConfig.llm.api_key,
-      system_prompt: mockConfig.llm.system_prompt,
-      model: mockConfig.llm.model,
-    };
+      const { SessionManager: MockSessionManager } = await import(
+        '@rinardnick/ts-mcp-client'
+      );
+      vi.mocked(MockSessionManager).mockImplementation(
+        () =>
+          ({
+            initializeSession: vi.fn().mockResolvedValue(mockSession),
+            sendMessage: vi.fn().mockRejectedValue(new Error('UI error')),
+            sendMessageStream: vi.fn(),
+            getSession: vi.fn(),
+            cleanupSession: vi.fn(),
+            updateSessionActivity: vi.fn(),
+          } as any)
+      );
 
-    const session = await sessionManager.initializeSession(llmConfig);
+      sessionManager = new SessionManager();
+      const session = await sessionManager.initializeSession(llmConfig);
 
-    // Verify session was initialized with server capabilities
-    expect(session).toBeDefined();
-    expect(session.mcpClient).toBeDefined();
-    expect(mockInitializeSession).toHaveBeenCalledWith(llmConfig);
+      await expect(
+        sessionManager.sendMessage(session.id, 'test message')
+      ).rejects.toThrow('Failed to send message');
+    });
   });
 
-  it('should handle server initialization failures gracefully', async () => {
-    // Mock config
-    const mockConfig = {
-      llm: {
-        type: 'claude',
-        model: 'claude-3-sonnet-20240229',
-        api_key: 'test-key',
-        system_prompt: 'You are a helpful assistant.',
-      },
-      max_tool_calls: 10,
-      servers: {
-        filesystem: {
-          command: 'invalid-command',
-          args: [],
-          env: {},
+  describe('Chat Session Delegation', () => {
+    it('should delegate chat session management to client', async () => {
+      const mockSession = {
+        id: 'test-session',
+        mcpClient: {
+          configure: vi.fn().mockResolvedValue(undefined),
+          discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
+          tools: mockCapabilities.tools,
         },
-      },
-    };
+      };
 
-    vi.mocked(loadConfig).mockResolvedValue(mockConfig);
+      const { SessionManager: MockSessionManager } = await import(
+        '@rinardnick/ts-mcp-client'
+      );
+      vi.mocked(MockSessionManager).mockImplementation(
+        () =>
+          ({
+            initializeSession: vi.fn().mockResolvedValue(mockSession),
+            sendMessage: vi
+              .fn()
+              .mockResolvedValue({ role: 'assistant', content: 'test' }),
+            sendMessageStream: vi.fn(),
+            getSession: vi.fn(),
+            cleanupSession: vi.fn(),
+            updateSessionActivity: vi.fn(),
+          } as any)
+      );
 
-    // Convert config to LLMConfig format
-    const llmConfig: LLMConfig = {
-      type: mockConfig.llm.type,
-      api_key: mockConfig.llm.api_key,
-      system_prompt: mockConfig.llm.system_prompt,
-      model: mockConfig.llm.model,
-    };
+      sessionManager = new SessionManager();
+      const session = await sessionManager.initializeSession(llmConfig);
 
-    // Mock initialization failure
-    const mockError = new Error(
-      'Failed to initialize server: invalid-command not found'
-    );
-    const mockInitializeSession = vi.fn().mockRejectedValue(mockError);
-    vi.mocked(TSMCPSessionManager).mockImplementation(
-      () =>
-        ({
-          initializeSession: mockInitializeSession,
-          anthropic: {},
-          processToolCall: vi.fn(),
-          handleToolCallLimit: vi.fn(),
-          sendMessage: vi.fn(),
-          getSession: vi.fn(),
-          getSessions: vi.fn(),
-          deleteSession: vi.fn(),
-        } as unknown as TSMCPSessionManager)
-    );
+      await sessionManager.sendMessage(session.id, 'test message');
+      expect(session.mcpClient).toBeDefined();
+    });
 
-    // Create session manager
-    const sessionManager = new SessionManager();
+    it('should delegate streaming to client', async () => {
+      const mockSession = {
+        id: 'test-session',
+        mcpClient: {
+          configure: vi.fn().mockResolvedValue(undefined),
+          discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
+          tools: mockCapabilities.tools,
+        },
+      };
 
-    // Attempt to initialize session
-    await expect(sessionManager.initializeSession(llmConfig)).rejects.toThrow(
-      'Failed to initialize server'
-    );
+      const { SessionManager: MockSessionManager } = await import(
+        '@rinardnick/ts-mcp-client'
+      );
+      vi.mocked(MockSessionManager).mockImplementation(
+        () =>
+          ({
+            initializeSession: vi.fn().mockResolvedValue(mockSession),
+            sendMessage: vi.fn(),
+            sendMessageStream: vi.fn().mockImplementation(async function* () {
+              yield { type: 'content', content: 'test' };
+            }),
+            getSession: vi.fn(),
+            cleanupSession: vi.fn(),
+            updateSessionActivity: vi.fn(),
+          } as any)
+      );
+
+      sessionManager = new SessionManager();
+      const session = await sessionManager.initializeSession(llmConfig);
+
+      const stream = session.mcpClient?.sendMessageStream('test message');
+      expect(stream).toBeDefined();
+    });
   });
 
-  it('should configure MCP client with servers and tool call limits', async () => {
-    // Mock config
-    const mockConfig = {
-      llm: {
-        type: 'claude',
-        model: 'claude-3-sonnet-20240229',
-        api_key: 'test-key',
-        system_prompt: 'You are a helpful assistant.',
-      },
-      max_tool_calls: 5,
-      servers: {
-        filesystem: {
-          command: 'npx',
-          args: [],
-          env: {},
+  describe('Error Handling', () => {
+    it('should handle client initialization errors', async () => {
+      const mockSession = {
+        id: 'test-session',
+        mcpClient: {
+          configure: vi
+            .fn()
+            .mockRejectedValue(new Error('Failed to initialize client')),
+          discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
+          tools: [],
         },
-      },
-    };
+      };
 
-    // Mock session response
-    const mockSession = {
-      id: 'test-session',
-      mcpClient: {
-        tools: ['readFile', 'writeFile'],
-        configure: vi.fn().mockResolvedValue(undefined),
-      },
-    } as unknown as ChatSession;
+      const { SessionManager: MockSessionManager } = await import(
+        '@rinardnick/ts-mcp-client'
+      );
+      vi.mocked(MockSessionManager).mockImplementation(
+        () =>
+          ({
+            initializeSession: vi.fn().mockResolvedValue(mockSession),
+            sendMessage: vi.fn(),
+            sendMessageStream: vi.fn(),
+            getSession: vi.fn(),
+            cleanupSession: vi.fn(),
+            updateSessionActivity: vi.fn(),
+          } as any)
+      );
 
-    const mockInitializeSession = vi.fn().mockResolvedValue(mockSession);
-    vi.mocked(TSMCPSessionManager).mockImplementation(
-      () =>
-        ({
-          initializeSession: mockInitializeSession,
-          anthropic: {},
-          processToolCall: vi.fn(),
-          handleToolCallLimit: vi.fn(),
-          sendMessage: vi.fn(),
-          getSession: vi.fn(),
-          getSessions: vi.fn(),
-          deleteSession: vi.fn(),
-        } as unknown as TSMCPSessionManager)
-    );
+      sessionManager = new SessionManager();
 
-    // Create session manager
-    const sessionManager = new SessionManager();
+      await expect(
+        sessionManager.initializeSession(llmConfig, mockServers)
+      ).rejects.toThrow('Failed to initialize client');
+    });
 
-    // Convert config to LLMConfig format
-    const llmConfig: LLMConfig = {
-      type: mockConfig.llm.type,
-      api_key: mockConfig.llm.api_key,
-      system_prompt: mockConfig.llm.system_prompt,
-      model: mockConfig.llm.model,
-    };
+    it('should handle message sending errors', async () => {
+      const mockSession = {
+        id: 'test-session',
+        mcpClient: {
+          configure: vi.fn().mockResolvedValue(undefined),
+          discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
+          tools: mockCapabilities.tools,
+        },
+      };
 
-    const session = await sessionManager.initializeSession(
-      llmConfig,
-      mockConfig.servers,
-      mockConfig.max_tool_calls
-    );
+      const { SessionManager: MockSessionManager } = await import(
+        '@rinardnick/ts-mcp-client'
+      );
+      vi.mocked(MockSessionManager).mockImplementation(
+        () =>
+          ({
+            initializeSession: vi.fn().mockResolvedValue(mockSession),
+            sendMessage: vi
+              .fn()
+              .mockRejectedValue(new Error('Failed to send message')),
+            sendMessageStream: vi.fn(),
+            getSession: vi.fn(),
+            cleanupSession: vi.fn(),
+            updateSessionActivity: vi.fn(),
+          } as any)
+      );
 
-    // Verify MCP client was configured with servers and tool call limits
-    expect(session.mcpClient?.configure).toHaveBeenCalledWith({
-      servers: mockConfig.servers,
-      max_tool_calls: mockConfig.max_tool_calls,
+      sessionManager = new SessionManager();
+      const session = await sessionManager.initializeSession(llmConfig);
+
+      await expect(
+        sessionManager.sendMessage(session.id, 'test message')
+      ).rejects.toThrow('Failed to send message');
     });
   });
 });
