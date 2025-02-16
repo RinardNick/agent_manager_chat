@@ -16,6 +16,22 @@ describe('Session Persistence', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // Mock localStorage
+    const store: { [key: string]: string } = {};
+    const mockLocalStorage = {
+      getItem: vi.fn((key: string) => store[key] || null),
+      setItem: vi.fn((key: string, value: string) => {
+        store[key] = value;
+      }),
+      clear: vi.fn(() => {
+        Object.keys(store).forEach(key => delete store[key]);
+      }),
+    };
+    Object.defineProperty(window, 'localStorage', {
+      value: mockLocalStorage,
+    });
+
     localStorage.clear();
     llmConfig = {
       type: 'test-type',
@@ -276,8 +292,12 @@ describe('Session Persistence', () => {
     sessionManager = new SessionManager();
     const session = await sessionManager.initializeSession(llmConfig);
 
+    // Ensure session is persisted
     const initialStoredData = localStorage.getItem('mcp_sessions');
-    const initialLastActivity = JSON.parse(initialStoredData!)[0].lastActivity;
+    expect(initialStoredData).not.toBeNull();
+    const storedSessions = JSON.parse(initialStoredData!);
+    expect(storedSessions.length).toBe(1);
+    const initialLastActivity = storedSessions[0].lastActivity;
 
     // Wait a bit to ensure timestamp changes
     await new Promise(resolve => setTimeout(resolve, 10));

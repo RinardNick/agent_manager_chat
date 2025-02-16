@@ -33,7 +33,6 @@ export class SessionManager {
   private readonly STORAGE_KEY = 'mcp_sessions';
   private readonly SESSION_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
   private tsmpSessionManager: TSMCPSessionManager;
-  private cachedCapabilities: any = null;
 
   constructor() {
     this.sessions = new Map();
@@ -41,7 +40,7 @@ export class SessionManager {
     this.loadSessions();
   }
 
-  private handleStorageError(operation: string, error: unknown) {
+  private handleStorageError(operation: string, error: unknown): null {
     console.error(`Failed to ${operation}:`, error);
     // Continue operation without storage
     return null;
@@ -63,6 +62,9 @@ export class SessionManager {
             await this.recoverSession(stored.id);
           } catch (error) {
             console.error(`Failed to recover session ${stored.id}:`, error);
+            // Remove failed session from storage
+            this.sessions.delete(stored.id);
+            this.persistSessions();
           }
         });
       }
@@ -95,25 +97,25 @@ export class SessionManager {
     try {
       const session = await this.tsmpSessionManager.initializeSession(config);
 
+      // Ensure mcpClient exists
+      if (!session.mcpClient) {
+        session.mcpClient = {
+          configure: async () => {},
+          discoverCapabilities: async () => {},
+          tools: [],
+        };
+      }
+
       if (serverConfig) {
         await session.mcpClient.configure({
           servers: serverConfig,
           max_tool_calls: maxToolCalls,
         });
-      }
-
-      // Discover capabilities if not cached
-      if (!this.cachedCapabilities) {
         try {
-          this.cachedCapabilities =
-            await session.mcpClient.discoverCapabilities();
-          if (!this.cachedCapabilities) {
-            throw new Error('No capabilities returned from server');
-          }
+          await session.mcpClient.discoverCapabilities();
         } catch (error) {
-          // Log the error but don't fail initialization
           console.error('Failed to discover capabilities:', error);
-          this.cachedCapabilities = { tools: [] }; // Use empty capabilities as fallback
+          // Continue with empty tools array
         }
       }
 
@@ -123,7 +125,6 @@ export class SessionManager {
         lastActivity: Date.now(),
         config,
         serverConfig,
-        capabilities: this.cachedCapabilities,
       };
 
       this.sessions.set(session.id, newSession);
@@ -152,14 +153,33 @@ export class SessionManager {
       if (Date.now() - storedSession.lastActivity > this.SESSION_EXPIRY) {
         // Remove expired session from storage
         const updatedSessions = storedSessions.filter(s => s.id !== sessionId);
-        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updatedSessions));
+        try {
+          localStorage.setItem(
+            this.STORAGE_KEY,
+            JSON.stringify(updatedSessions)
+          );
+        } catch (error) {
+          this.handleStorageError('update sessions after expiry', error);
+        }
         throw new Error('Session expired');
       }
 
-      return this.initializeSession(
-        storedSession.config,
-        storedSession.serverConfig
-      );
+      try {
+        return this.initializeSession(
+          storedSession.config,
+          storedSession.serverConfig
+        );
+      } catch (error) {
+        console.error(`Failed to recover session ${sessionId}:`, error);
+        // Remove failed session from storage
+        this.sessions.delete(sessionId);
+        this.persistSessions();
+        throw new Error(
+          `Failed to recover session ${sessionId}: ${
+            error instanceof Error ? error.message : 'Unknown error'
+          }`
+        );
+      }
     } catch (error) {
       console.error('Failed to recover session:', error);
       throw error;

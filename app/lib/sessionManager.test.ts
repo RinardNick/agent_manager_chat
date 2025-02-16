@@ -173,7 +173,7 @@ describe('Session Manager Responsibilities', () => {
       sessionManager = new SessionManager();
       const session = await sessionManager.initializeSession(llmConfig);
 
-      const stream = session.mcpClient?.sendMessageStream('test message');
+      const stream = sessionManager.sendMessageStream(session.id, 'test message');
       expect(stream).toBeDefined();
     });
   });
