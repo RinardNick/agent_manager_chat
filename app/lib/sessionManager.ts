@@ -166,4 +166,17 @@ export class SessionManager {
     const uiSession = this.uiSessions.get(sessionId);
     return uiSession?.uiState;
   }
+
+  async cleanupSession(sessionId: string): Promise<void> {
+    try {
+      // Clean up UI state
+      this.uiSessions.delete(sessionId);
+
+      // Delegate cleanup to client
+      await this.tsmpSessionManager.cleanupSession(sessionId);
+    } catch (error) {
+      console.error('Failed to cleanup session:', error);
+      throw error;
+    }
+  }
 }
