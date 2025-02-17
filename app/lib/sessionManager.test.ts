@@ -6,13 +6,28 @@ import {
   SessionManager as TSMCPSessionManager,
 } from '@rinardnick/ts-mcp-client';
 
-vi.mock('@rinardnick/ts-mcp-client');
+// Mock the ts-mcp-client module
+const mockTSMCPSessionManager = {
+  initializeSession: vi.fn(),
+  sendMessage: vi.fn(),
+  sendMessageStream: vi.fn(),
+  getSession: vi.fn(),
+  cleanupSession: vi.fn(),
+  updateSessionActivity: vi.fn(),
+};
+
+vi.mock('@rinardnick/ts-mcp-client', () => {
+  return {
+    SessionManager: vi.fn().mockImplementation(() => mockTSMCPSessionManager),
+  };
+});
 
 describe('Session Manager Responsibilities', () => {
   let sessionManager: SessionManager;
   let llmConfig: LLMConfig;
   let mockServers: ServerConfig;
   let mockCapabilities: any;
+  let mockClientSession: any;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -39,34 +54,25 @@ describe('Session Manager Responsibilities', () => {
         },
       ],
     };
+
+    mockClientSession = {
+      id: 'test-session',
+      mcpClient: {
+        configure: vi.fn().mockResolvedValue(undefined),
+        discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
+        tools: mockCapabilities.tools,
+      },
+    };
+
+    // Configure mock behavior
+    mockTSMCPSessionManager.initializeSession.mockResolvedValue(
+      mockClientSession
+    );
+    mockTSMCPSessionManager.getSession.mockResolvedValue(mockClientSession);
   });
 
   describe('UI Session Management', () => {
     it('should maintain UI state separate from chat session', async () => {
-      const mockSession = {
-        id: 'test-session',
-        mcpClient: {
-          configure: vi.fn().mockResolvedValue(undefined),
-          discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
-          tools: mockCapabilities.tools,
-        },
-      };
-
-      const { SessionManager: MockSessionManager } = await import(
-        '@rinardnick/ts-mcp-client'
-      );
-      vi.mocked(MockSessionManager).mockImplementation(
-        () =>
-          ({
-            initializeSession: vi.fn().mockResolvedValue(mockSession),
-            sendMessage: vi.fn(),
-            sendMessageStream: vi.fn(),
-            getSession: vi.fn(),
-            cleanupSession: vi.fn(),
-            updateSessionActivity: vi.fn(),
-          } as any)
-      );
-
       sessionManager = new SessionManager();
       const session = await sessionManager.initializeSession(llmConfig);
 
@@ -75,28 +81,8 @@ describe('Session Manager Responsibilities', () => {
     });
 
     it('should handle UI-specific error states', async () => {
-      const mockSession = {
-        id: 'test-session',
-        mcpClient: {
-          configure: vi.fn().mockResolvedValue(undefined),
-          discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
-          tools: mockCapabilities.tools,
-        },
-      };
-
-      const { SessionManager: MockSessionManager } = await import(
-        '@rinardnick/ts-mcp-client'
-      );
-      vi.mocked(MockSessionManager).mockImplementation(
-        () =>
-          ({
-            initializeSession: vi.fn().mockResolvedValue(mockSession),
-            sendMessage: vi.fn().mockRejectedValue(new Error('UI error')),
-            sendMessageStream: vi.fn(),
-            getSession: vi.fn(),
-            cleanupSession: vi.fn(),
-            updateSessionActivity: vi.fn(),
-          } as any)
+      mockTSMCPSessionManager.sendMessage.mockRejectedValueOnce(
+        new Error('UI error')
       );
 
       sessionManager = new SessionManager();
@@ -110,31 +96,10 @@ describe('Session Manager Responsibilities', () => {
 
   describe('Chat Session Delegation', () => {
     it('should delegate chat session management to client', async () => {
-      const mockSession = {
-        id: 'test-session',
-        mcpClient: {
-          configure: vi.fn().mockResolvedValue(undefined),
-          discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
-          tools: mockCapabilities.tools,
-        },
-      };
-
-      const { SessionManager: MockSessionManager } = await import(
-        '@rinardnick/ts-mcp-client'
-      );
-      vi.mocked(MockSessionManager).mockImplementation(
-        () =>
-          ({
-            initializeSession: vi.fn().mockResolvedValue(mockSession),
-            sendMessage: vi
-              .fn()
-              .mockResolvedValue({ role: 'assistant', content: 'test' }),
-            sendMessageStream: vi.fn(),
-            getSession: vi.fn(),
-            cleanupSession: vi.fn(),
-            updateSessionActivity: vi.fn(),
-          } as any)
-      );
+      mockTSMCPSessionManager.sendMessage.mockResolvedValueOnce({
+        role: 'assistant',
+        content: 'test',
+      });
 
       sessionManager = new SessionManager();
       const session = await sessionManager.initializeSession(llmConfig);
@@ -144,66 +109,27 @@ describe('Session Manager Responsibilities', () => {
     });
 
     it('should delegate streaming to client', async () => {
-      const mockSession = {
-        id: 'test-session',
-        mcpClient: {
-          configure: vi.fn().mockResolvedValue(undefined),
-          discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
-          tools: mockCapabilities.tools,
-        },
-      };
-
-      const { SessionManager: MockSessionManager } = await import(
-        '@rinardnick/ts-mcp-client'
-      );
-      vi.mocked(MockSessionManager).mockImplementation(
-        () =>
-          ({
-            initializeSession: vi.fn().mockResolvedValue(mockSession),
-            sendMessage: vi.fn(),
-            sendMessageStream: vi.fn().mockImplementation(async function* () {
-              yield { type: 'content', content: 'test' };
-            }),
-            getSession: vi.fn(),
-            cleanupSession: vi.fn(),
-            updateSessionActivity: vi.fn(),
-          } as any)
+      mockTSMCPSessionManager.sendMessageStream.mockImplementationOnce(
+        async function* () {
+          yield { type: 'content', content: 'test' };
+        }
       );
 
       sessionManager = new SessionManager();
       const session = await sessionManager.initializeSession(llmConfig);
 
-      const stream = sessionManager.sendMessageStream(session.id, 'test message');
+      const stream = sessionManager.sendMessageStream(
+        session.id,
+        'test message'
+      );
       expect(stream).toBeDefined();
     });
   });
 
   describe('Error Handling', () => {
     it('should handle client initialization errors', async () => {
-      const mockSession = {
-        id: 'test-session',
-        mcpClient: {
-          configure: vi
-            .fn()
-            .mockRejectedValue(new Error('Failed to initialize client')),
-          discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
-          tools: [],
-        },
-      };
-
-      const { SessionManager: MockSessionManager } = await import(
-        '@rinardnick/ts-mcp-client'
-      );
-      vi.mocked(MockSessionManager).mockImplementation(
-        () =>
-          ({
-            initializeSession: vi.fn().mockResolvedValue(mockSession),
-            sendMessage: vi.fn(),
-            sendMessageStream: vi.fn(),
-            getSession: vi.fn(),
-            cleanupSession: vi.fn(),
-            updateSessionActivity: vi.fn(),
-          } as any)
+      mockClientSession.mcpClient.configure.mockRejectedValueOnce(
+        new Error('Failed to initialize client')
       );
 
       sessionManager = new SessionManager();
@@ -214,30 +140,8 @@ describe('Session Manager Responsibilities', () => {
     });
 
     it('should handle message sending errors', async () => {
-      const mockSession = {
-        id: 'test-session',
-        mcpClient: {
-          configure: vi.fn().mockResolvedValue(undefined),
-          discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
-          tools: mockCapabilities.tools,
-        },
-      };
-
-      const { SessionManager: MockSessionManager } = await import(
-        '@rinardnick/ts-mcp-client'
-      );
-      vi.mocked(MockSessionManager).mockImplementation(
-        () =>
-          ({
-            initializeSession: vi.fn().mockResolvedValue(mockSession),
-            sendMessage: vi
-              .fn()
-              .mockRejectedValue(new Error('Failed to send message')),
-            sendMessageStream: vi.fn(),
-            getSession: vi.fn(),
-            cleanupSession: vi.fn(),
-            updateSessionActivity: vi.fn(),
-          } as any)
+      mockTSMCPSessionManager.sendMessage.mockRejectedValueOnce(
+        new Error('Failed to send message')
       );
 
       sessionManager = new SessionManager();

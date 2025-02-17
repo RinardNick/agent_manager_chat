@@ -6,13 +6,28 @@ import {
   SessionManager as TSMCPSessionManager,
 } from '@rinardnick/ts-mcp-client';
 
-vi.mock('@rinardnick/ts-mcp-client');
+// Mock the ts-mcp-client module
+const mockTSMCPSessionManager = {
+  initializeSession: vi.fn(),
+  sendMessage: vi.fn(),
+  sendMessageStream: vi.fn(),
+  getSession: vi.fn(),
+  cleanupSession: vi.fn(),
+  updateSessionActivity: vi.fn(),
+};
+
+vi.mock('@rinardnick/ts-mcp-client', () => {
+  return {
+    SessionManager: vi.fn().mockImplementation(() => mockTSMCPSessionManager),
+  };
+});
 
 describe('Session Persistence', () => {
   let sessionManager: SessionManager;
   let llmConfig: LLMConfig;
   let mockServers: ServerConfig;
   let mockCapabilities: any;
+  let mockClientSession: any;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -56,10 +71,8 @@ describe('Session Persistence', () => {
         },
       ],
     };
-  });
 
-  it('should persist session state to storage', async () => {
-    const mockSession = {
+    mockClientSession = {
       id: 'test-session',
       mcpClient: {
         configure: vi.fn().mockResolvedValue(undefined),
@@ -68,245 +81,105 @@ describe('Session Persistence', () => {
       },
     };
 
-    const { SessionManager: MockSessionManager } = await import(
-      '@rinardnick/ts-mcp-client'
+    // Configure mock behavior
+    mockTSMCPSessionManager.initializeSession.mockResolvedValue(
+      mockClientSession
     );
-    vi.mocked(MockSessionManager).mockImplementation(
-      () =>
-        ({
-          initializeSession: vi.fn().mockResolvedValue(mockSession),
-          sendMessage: vi.fn(),
-          sendMessageStream: vi.fn(),
-          getSession: vi.fn(),
-          cleanupSession: vi.fn(),
-          updateSessionActivity: vi.fn(),
-        } as any)
-    );
+    mockTSMCPSessionManager.getSession.mockResolvedValue(mockClientSession);
+  });
 
+  it('should delegate session persistence to client', async () => {
     sessionManager = new SessionManager();
     const session = await sessionManager.initializeSession(llmConfig);
 
-    const storedData = localStorage.getItem('mcp_sessions');
-    expect(storedData).toBeDefined();
+    // Verify session was initialized through client
+    expect(mockTSMCPSessionManager.initializeSession).toHaveBeenCalledWith(
+      llmConfig
+    );
+    expect(session.id).toBe(mockClientSession.id);
 
-    const storedSessions = JSON.parse(storedData!);
-    expect(storedSessions).toHaveLength(1);
-    expect(storedSessions[0].id).toBe(session.id);
-    expect(storedSessions[0].config).toEqual(llmConfig);
+    // Verify UI state is maintained locally
+    const uiState = sessionManager.getUIState(session.id);
+    expect(uiState).toBeDefined();
+    expect(uiState?.isLoading).toBe(false);
+    expect(uiState?.error).toBeNull();
   });
 
-  it('should recover session state after reload', async () => {
-    const mockSession = {
-      id: 'test-session',
-      mcpClient: {
-        configure: vi.fn().mockResolvedValue(undefined),
-        discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
-        tools: mockCapabilities.tools,
-      },
-    };
-
-    const { SessionManager: MockSessionManager } = await import(
-      '@rinardnick/ts-mcp-client'
-    );
-    vi.mocked(MockSessionManager).mockImplementation(
-      () =>
-        ({
-          initializeSession: vi.fn().mockResolvedValue(mockSession),
-          sendMessage: vi.fn(),
-          sendMessageStream: vi.fn(),
-          getSession: vi.fn(),
-          cleanupSession: vi.fn(),
-          updateSessionActivity: vi.fn(),
-        } as any)
-    );
-
-    // Create and store a session
+  it('should recover session state from client', async () => {
     sessionManager = new SessionManager();
-    const originalSession = await sessionManager.initializeSession(llmConfig);
+    const session = await sessionManager.recoverSession('test-session');
 
-    // Create a new session manager instance to simulate page reload
-    sessionManager = new SessionManager();
-    const recoveredSession = await sessionManager.recoverSession(
-      originalSession.id
+    // Verify session was retrieved from client
+    expect(mockTSMCPSessionManager.getSession).toHaveBeenCalledWith(
+      'test-session'
     );
+    expect(session.id).toBe(mockClientSession.id);
 
-    expect(recoveredSession.id).toBe(originalSession.id);
-    expect(recoveredSession.mcpClient?.tools).toEqual(mockCapabilities.tools);
+    // Verify UI state is initialized
+    const uiState = sessionManager.getUIState(session.id);
+    expect(uiState).toBeDefined();
+    expect(uiState?.isLoading).toBe(false);
+    expect(uiState?.error).toBeNull();
   });
 
-  it('should handle multiple active sessions', async () => {
-    const mockSession1 = {
-      id: 'test-session-1',
-      mcpClient: {
-        configure: vi.fn().mockResolvedValue(undefined),
-        discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
-        tools: mockCapabilities.tools,
-      },
-    };
-
-    const mockSession2 = {
-      id: 'test-session-2',
-      mcpClient: {
-        configure: vi.fn().mockResolvedValue(undefined),
-        discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
-        tools: mockCapabilities.tools,
-      },
-    };
-
-    const { SessionManager: MockSessionManager } = await import(
-      '@rinardnick/ts-mcp-client'
-    );
-    const mockInitializeSession = vi
-      .fn()
-      .mockResolvedValueOnce(mockSession1)
+  it('should handle multiple active sessions with separate UI states', async () => {
+    const mockSession2 = { ...mockClientSession, id: 'test-session-2' };
+    mockTSMCPSessionManager.initializeSession
+      .mockResolvedValueOnce(mockClientSession)
       .mockResolvedValueOnce(mockSession2);
-
-    vi.mocked(MockSessionManager).mockImplementation(
-      () =>
-        ({
-          initializeSession: mockInitializeSession,
-          sendMessage: vi.fn(),
-          sendMessageStream: vi.fn(),
-          getSession: vi.fn(),
-          cleanupSession: vi.fn(),
-          updateSessionActivity: vi.fn(),
-        } as any)
-    );
 
     sessionManager = new SessionManager();
     const session1 = await sessionManager.initializeSession(llmConfig);
     const session2 = await sessionManager.initializeSession(llmConfig);
 
-    const storedData = localStorage.getItem('mcp_sessions');
-    const storedSessions = JSON.parse(storedData!);
+    // Verify both sessions were initialized through client
+    expect(mockTSMCPSessionManager.initializeSession).toHaveBeenCalledTimes(2);
+    expect(session1.id).toBe(mockClientSession.id);
+    expect(session2.id).toBe(mockSession2.id);
 
-    expect(storedSessions).toHaveLength(2);
-    expect(storedSessions.map((s: any) => s.id)).toContain(session1.id);
-    expect(storedSessions.map((s: any) => s.id)).toContain(session2.id);
+    // Verify separate UI states
+    const uiState1 = sessionManager.getUIState(session1.id);
+    const uiState2 = sessionManager.getUIState(session2.id);
+    expect(uiState1).toBeDefined();
+    expect(uiState2).toBeDefined();
+    expect(uiState1).not.toBe(uiState2);
   });
 
-  it('should cleanup expired sessions', async () => {
-    const mockSession = {
-      id: 'test-session',
-      mcpClient: {
-        configure: vi.fn().mockResolvedValue(undefined),
-        discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
-        tools: mockCapabilities.tools,
-      },
-    };
-
-    const { SessionManager: MockSessionManager } = await import(
-      '@rinardnick/ts-mcp-client'
-    );
-    vi.mocked(MockSessionManager).mockImplementation(
-      () =>
-        ({
-          initializeSession: vi.fn().mockResolvedValue(mockSession),
-          sendMessage: vi.fn(),
-          sendMessageStream: vi.fn(),
-          getSession: vi.fn(),
-          cleanupSession: vi.fn(),
-          updateSessionActivity: vi.fn(),
-        } as any)
+  it('should delegate session cleanup to client', async () => {
+    mockTSMCPSessionManager.getSession.mockRejectedValueOnce(
+      new Error('Session expired')
     );
 
-    // Create a session and manually set its last activity to 25 hours ago
     sessionManager = new SessionManager();
-    const session = await sessionManager.initializeSession(llmConfig);
-    const storedData = localStorage.getItem('mcp_sessions');
-    const storedSessions = JSON.parse(storedData!);
-    storedSessions[0].lastActivity = Date.now() - 25 * 60 * 60 * 1000;
-    localStorage.setItem('mcp_sessions', JSON.stringify(storedSessions));
+    await expect(
+      sessionManager.recoverSession('expired-session')
+    ).rejects.toThrow('Session expired');
 
-    // Create a new session manager instance to trigger cleanup
-    sessionManager = new SessionManager();
-    await expect(sessionManager.recoverSession(session.id)).rejects.toThrow(
-      'Session expired'
+    // Verify client was consulted about session existence
+    expect(mockTSMCPSessionManager.getSession).toHaveBeenCalledWith(
+      'expired-session'
     );
   });
 
-  it('should handle storage errors gracefully', async () => {
-    const mockSession = {
-      id: 'test-session',
-      mcpClient: {
-        configure: vi.fn().mockResolvedValue(undefined),
-        discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
-        tools: mockCapabilities.tools,
-      },
-    };
-
-    const { SessionManager: MockSessionManager } = await import(
-      '@rinardnick/ts-mcp-client'
+  it('should handle client errors gracefully', async () => {
+    mockTSMCPSessionManager.initializeSession.mockRejectedValueOnce(
+      new Error('Client error')
     );
-    vi.mocked(MockSessionManager).mockImplementation(
-      () =>
-        ({
-          initializeSession: vi.fn().mockResolvedValue(mockSession),
-          sendMessage: vi.fn(),
-          sendMessageStream: vi.fn(),
-          getSession: vi.fn(),
-          cleanupSession: vi.fn(),
-          updateSessionActivity: vi.fn(),
-        } as any)
-    );
-
-    // Mock localStorage.setItem to throw an error
-    const mockSetItem = vi.spyOn(Storage.prototype, 'setItem');
-    mockSetItem.mockImplementation(() => {
-      throw new Error('Storage full');
-    });
 
     sessionManager = new SessionManager();
-    const session = await sessionManager.initializeSession(llmConfig);
-
-    // Session should still be initialized even if storage fails
-    expect(session).toBeDefined();
-    expect(session.mcpClient?.tools).toEqual(mockCapabilities.tools);
+    await expect(sessionManager.initializeSession(llmConfig)).rejects.toThrow(
+      'Client error'
+    );
   });
 
-  it('should update session activity on message send', async () => {
-    const mockSession = {
-      id: 'test-session',
-      mcpClient: {
-        configure: vi.fn().mockResolvedValue(undefined),
-        discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
-        tools: mockCapabilities.tools,
-      },
-    };
-
-    const { SessionManager: MockSessionManager } = await import(
-      '@rinardnick/ts-mcp-client'
-    );
-    vi.mocked(MockSessionManager).mockImplementation(
-      () =>
-        ({
-          initializeSession: vi.fn().mockResolvedValue(mockSession),
-          sendMessage: vi.fn(),
-          sendMessageStream: vi.fn(),
-          getSession: vi.fn(),
-          cleanupSession: vi.fn(),
-          updateSessionActivity: vi.fn(),
-        } as any)
-    );
-
+  it('should delegate activity tracking to client', async () => {
     sessionManager = new SessionManager();
     const session = await sessionManager.initializeSession(llmConfig);
-
-    // Ensure session is persisted
-    const initialStoredData = localStorage.getItem('mcp_sessions');
-    expect(initialStoredData).not.toBeNull();
-    const storedSessions = JSON.parse(initialStoredData!);
-    expect(storedSessions.length).toBe(1);
-    const initialLastActivity = storedSessions[0].lastActivity;
-
-    // Wait a bit to ensure timestamp changes
-    await new Promise(resolve => setTimeout(resolve, 10));
-
     await sessionManager.sendMessage(session.id, 'test message');
 
-    const updatedStoredData = localStorage.getItem('mcp_sessions');
-    const updatedLastActivity = JSON.parse(updatedStoredData!)[0].lastActivity;
-
-    expect(updatedLastActivity).toBeGreaterThan(initialLastActivity);
+    // Verify activity tracking is delegated to client
+    expect(mockTSMCPSessionManager.updateSessionActivity).toHaveBeenCalledWith(
+      session.id
+    );
   });
 });

@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 
+// Types
 export interface ServerConfig {
   command: string;
   args: string[];
@@ -19,6 +20,23 @@ export interface LLMConfig {
   system_prompt: string;
 }
 
+export interface ChatSession {
+  id: string;
+  mcpClient: any;
+  messages: any[];
+}
+
+export interface ChatMessage {
+  role: string;
+  content: string;
+}
+
+export interface LLMError extends Error {
+  code: string;
+  details?: any;
+}
+
+// Mock data
 const mockCapabilities = {
   tools: [
     {
@@ -44,30 +62,40 @@ const mockSession = {
   },
 };
 
-class MockSessionManager {
+// Mock SessionManager class
+export class SessionManager {
   private sessions = new Map();
   private cachedCapabilities: typeof mockCapabilities | null = null;
+  public anthropic = {};
+  public processToolCall = vi.fn();
+  public handleToolCallLimit = vi.fn();
 
-  public initializeSession = vi.fn().mockImplementation(async () => {
-    const session = {
-      id: 'test-session',
-      mcpClient: {
-        configure: vi.fn().mockResolvedValue(undefined),
-        discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
-        tools: [] as Tool[],
-        sendMessageStream: vi.fn().mockImplementation(async function* () {
-          yield { type: 'content', content: 'test' };
-        }),
-      },
-      messages: [],
-    };
+  constructor() {}
 
-    if (!this.cachedCapabilities) {
-      this.cachedCapabilities = await session.mcpClient.discoverCapabilities();
-    }
-    session.mcpClient.tools = this.cachedCapabilities?.tools || [];
-    return session;
-  });
+  public initializeSession = vi
+    .fn()
+    .mockImplementation(async (config: LLMConfig) => {
+      const session = {
+        id: 'test-session',
+        mcpClient: {
+          configure: vi.fn().mockResolvedValue(undefined),
+          discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
+          tools: [] as Tool[],
+          sendMessageStream: vi.fn().mockImplementation(async function* () {
+            yield { type: 'content', content: 'test' };
+          }),
+        },
+        messages: [],
+      };
+
+      if (!this.cachedCapabilities) {
+        this.cachedCapabilities =
+          await session.mcpClient.discoverCapabilities();
+      }
+      session.mcpClient.tools = this.cachedCapabilities?.tools || [];
+      this.sessions.set(session.id, session);
+      return session;
+    });
 
   public sendMessage = vi
     .fn()
@@ -80,14 +108,16 @@ class MockSessionManager {
   public getSession = vi.fn().mockReturnValue(mockSession);
   public cleanupSession = vi.fn();
   public updateSessionActivity = vi.fn();
-  public processToolCall = vi.fn();
-  public handleToolCallLimit = vi.fn();
 }
 
-export const SessionManager = vi
-  .fn()
-  .mockImplementation(() => new MockSessionManager());
-
-// Export the mock session and capabilities for test configuration
+// Export mock data for test configuration
 export const __mockSession = mockSession;
 export const __mockCapabilities = mockCapabilities;
+
+// Export config loader
+export const loadConfig = vi.fn().mockImplementation(() => ({
+  type: 'test',
+  model: 'test-model',
+  api_key: 'test-key',
+  system_prompt: 'test-prompt',
+}));
