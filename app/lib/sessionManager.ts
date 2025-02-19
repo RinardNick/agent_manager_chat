@@ -169,13 +169,10 @@ export class SessionManager {
 
   async cleanupSession(sessionId: string): Promise<void> {
     try {
-      // Clean up UI state
+      // Clean up UI state only
       this.uiSessions.delete(sessionId);
-
-      // Delegate cleanup to client
-      await this.tsmpSessionManager.cleanupSession(sessionId);
     } catch (error) {
-      console.error('Failed to cleanup session:', error);
+      console.error('Failed to cleanup UI session:', error);
       throw error;
     }
   }

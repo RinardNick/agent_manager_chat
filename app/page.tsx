@@ -1,11 +1,14 @@
-import { Chat } from './components/Chat';
+'use client';
+
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function Home() {
-  return (
-    <main className="flex min-h-screen bg-background p-4">
-      <div className="flex-1">
-        <Chat />
-      </div>
-    </main>
-  );
+  const router = useRouter();
+
+  useEffect(() => {
+    router.push('/chat');
+  }, [router]);
+
+  return null;
 }

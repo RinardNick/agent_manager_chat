@@ -106,7 +106,6 @@ export class SessionManager {
   });
 
   public getSession = vi.fn().mockReturnValue(mockSession);
-  public cleanupSession = vi.fn();
   public updateSessionActivity = vi.fn();
 }
 

@@ -9,45 +9,98 @@ export const preferredRegion = 'auto';
 
 // Initialize session manager
 let sessionManager: SessionManager;
+let globalConfig: any;
+let initializationPromise: Promise<void> | null = null;
 
 async function initializeIfNeeded() {
-  if (!sessionManager) {
-    try {
-      // Load configuration
-      const configPath = await getDefaultConfigPath();
-      const config = await loadConfig(configPath);
+  if (!initializationPromise) {
+    initializationPromise = (async () => {
+      if (!sessionManager) {
+        try {
+          // Load configuration
+          console.log('[API] Getting default config path');
+          const configPath = await getDefaultConfigPath();
+          console.log('[API] Loading config from:', configPath);
+          globalConfig = await loadConfig(configPath);
+          console.log('[API] Loaded config:', {
+            ...globalConfig,
+            llm: {
+              ...globalConfig.llm,
+              api_key: '[REDACTED]',
+            },
+          });
 
-      // Create session manager
-      sessionManager = new SessionManager();
+          // Create session manager
+          console.log('[API] Creating session manager');
+          sessionManager = new SessionManager();
 
-      // Initialize session with LLM config
-      const llmConfig: LLMConfig = {
-        type: config.llm.type,
-        api_key: config.llm.api_key,
-        system_prompt: config.llm.system_prompt,
-        model: config.llm.model,
-      };
+          // Initialize session with LLM config
+          const llmConfig: LLMConfig = {
+            type: globalConfig.llm.type,
+            api_key: globalConfig.llm.api_key,
+            system_prompt: globalConfig.llm.system_prompt,
+            model: globalConfig.llm.model,
+            servers: globalConfig.servers,
+          };
+          console.log('[API] Using LLM config:', {
+            type: llmConfig.type,
+            model: llmConfig.model,
+            system_prompt: llmConfig.system_prompt,
+            api_key: '[REDACTED]',
+          });
 
-      // Initialize session
-      const session = await sessionManager.initializeSession(llmConfig);
+          // Initialize session
+          console.log('[API] Initializing session');
+          try {
+            const session = await sessionManager.initializeSession(llmConfig);
+            console.log('[API] Session initialized successfully:', {
+              id: session.id,
+              hasClient: !!session.mcpClient,
+              messageCount: session.messages?.length || 0,
+            });
 
-      // Configure MCP client if available
-      if (session.mcpClient) {
-        await session.mcpClient.configure({
-          servers: config.servers,
-          max_tool_calls: config.max_tool_calls,
-        });
+            // Configure MCP client if available
+            if (session.mcpClient) {
+              console.log('[API] Configuring MCP client');
+              await session.mcpClient.configure({
+                servers: globalConfig.servers,
+                max_tool_calls: globalConfig.max_tool_calls,
+              });
+              console.log('[API] MCP client configured successfully');
+            }
+
+            console.log('[INIT] Session manager initialized successfully');
+            if (session.mcpClient) {
+              console.log('[INIT] Available tools:', session.mcpClient.tools);
+            }
+          } catch (error) {
+            console.error('[API] Session initialization error details:', {
+              error:
+                error instanceof Error
+                  ? {
+                      name: error.name,
+                      message: error.message,
+                      stack: error.stack,
+                    }
+                  : error,
+              config: {
+                type: llmConfig.type,
+                model: llmConfig.model,
+                system_prompt: llmConfig.system_prompt,
+                api_key_length: llmConfig.api_key.length,
+              },
+            });
+            throw error;
+          }
+        } catch (error) {
+          console.error('[INIT] Failed to initialize:', error);
+          initializationPromise = null;
+          throw error;
+        }
       }
-
-      console.log('[INIT] Session manager initialized successfully');
-      if (session.mcpClient) {
-        console.log('[INIT] Available tools:', session.mcpClient.tools);
-      }
-    } catch (error) {
-      console.error('[INIT] Failed to initialize:', error);
-      throw error;
-    }
+    })();
   }
+  await initializationPromise;
 }
 
 export async function GET(request: NextRequest) {
@@ -132,21 +185,27 @@ export async function POST(request: NextRequest) {
   try {
     await initializeIfNeeded();
 
-    const body = await request.json();
     const url = new URL(request.url);
     const path = url.pathname.replace('/api/chat', '');
 
     if (path === '/session') {
-      const { config } = body;
-      if (!config) {
-        return NextResponse.json(
-          { error: 'Configuration is required' },
-          { status: 400 }
-        );
-      }
-
       try {
-        const session = await sessionManager.initializeSession(config);
+        // Create a new session using the global configuration
+        const session = await sessionManager.initializeSession({
+          type: globalConfig.llm.type,
+          api_key: globalConfig.llm.api_key,
+          system_prompt: globalConfig.llm.system_prompt,
+          model: globalConfig.llm.model,
+        });
+
+        // Configure MCP client if available
+        if (session.mcpClient) {
+          await session.mcpClient.configure({
+            servers: globalConfig.servers,
+            max_tool_calls: globalConfig.max_tool_calls,
+          });
+        }
+
         return NextResponse.json(
           { sessionId: session.id, messages: session.messages },
           { status: 201 }
@@ -168,6 +227,7 @@ export async function POST(request: NextRequest) {
     const match = path.match(/^\/session\/([^/]+)\/message$/);
     if (match) {
       const sessionId = match[1];
+      const body = await request.json();
       const { message } = body;
 
       if (!message) {

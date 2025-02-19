@@ -36,14 +36,6 @@ export function Chat() {
 
   // Initialize chat session
   useEffect(() => {
-    const apiKey = process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      setError(
-        'API key not found. Please set NEXT_PUBLIC_ANTHROPIC_API_KEY in your environment.'
-      );
-      return;
-    }
-
     // Prevent duplicate initialization
     if (sessionId || initializingRef.current) {
       return;
@@ -51,20 +43,11 @@ export function Chat() {
 
     initializingRef.current = true;
 
-    const config: LLMConfig = {
-      type: process.env.NEXT_PUBLIC_LLM_TYPE || 'claude',
-      api_key: apiKey,
-      system_prompt:
-        process.env.NEXT_PUBLIC_SYSTEM_PROMPT || 'You are a helpful assistant.',
-      model: process.env.NEXT_PUBLIC_LLM_MODEL || 'claude-3-5-sonnet-20240620',
-    };
-
     const initSession = async () => {
       try {
         const response = await fetch('/api/chat/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ config }),
         });
 
         if (!response.ok) {
