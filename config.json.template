@@ -1,0 +1,29 @@
+{
+  "llm": {
+    "type": "claude",
+    "model": "claude-3-5-sonnet-20241022",
+    "api_key": "YOUR_API_KEY_HERE",
+    "system_prompt": "You are a helpful assistant."
+  },
+  "max_tool_calls": 10,
+  "servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/nicholasrinard/Library/CloudStorage/GoogleDrive-nickarinard@gmail.com/My Drive/proj_misc/"
+      ],
+      "env": {}
+    },
+    "terminal": {
+      "command": "npx",
+      "args": [
+        "@rinardnick/mcp-terminal",
+        "--allowed-commands",
+        "[go,python3,uv,npm,npx,git,ls,cd,touch,mv,pwd,mkdir]"
+      ],
+      "env": {}
+    }
+  }
+} 
