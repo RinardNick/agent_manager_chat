@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { LLMConfig } from '@rinardnick/ts-mcp-client';
+import { LLMConfig } from '@rinardnick/client_mcp';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {

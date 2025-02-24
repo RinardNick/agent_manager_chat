@@ -4,9 +4,9 @@ import {
   LLMConfig,
   ServerConfig,
   SessionManager as TSMCPSessionManager,
-} from '@rinardnick/ts-mcp-client';
+} from '@rinardnick/client_mcp';
 
-vi.mock('@rinardnick/ts-mcp-client');
+vi.mock('@rinardnick/client_mcp');
 
 describe('Tool Invocation through Session Manager', () => {
   let sessionManager: SessionManager;
@@ -53,7 +53,7 @@ describe('Tool Invocation through Session Manager', () => {
     };
 
     const { SessionManager: MockSessionManager } = await import(
-      '@rinardnick/ts-mcp-client'
+      '@rinardnick/client_mcp'
     );
     vi.mocked(MockSessionManager).mockImplementation(
       () =>
@@ -91,7 +91,7 @@ describe('Tool Invocation through Session Manager', () => {
     };
 
     const { SessionManager: MockSessionManager } = await import(
-      '@rinardnick/ts-mcp-client'
+      '@rinardnick/client_mcp'
     );
     vi.mocked(MockSessionManager).mockImplementation(
       () =>

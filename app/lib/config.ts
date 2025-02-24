@@ -1,4 +1,4 @@
-import { LLMConfig, ServerConfig } from '@rinardnick/ts-mcp-client';
+import { LLMConfig, ServerConfig } from '@rinardnick/client_mcp';
 
 export interface MCPConfig {
   llm: {

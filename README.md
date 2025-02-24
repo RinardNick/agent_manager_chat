@@ -1,6 +1,6 @@
 # MCP Host Application
 
-This is a Next.js application that demonstrates how to use the TypeScript MCP Client (`@rinardnick/ts-mcp-client`) to create an AI assistant with tool capabilities.
+This is a Next.js application that demonstrates how to use the TypeScript MCP Client (`@rinardnick/client_mcp`) to create an AI assistant with tool capabilities.
 
 ## Features
 
@@ -106,7 +106,7 @@ All errors are logged and streamed back to the client with appropriate context.
 The host application is built with:
 
 - Next.js for the web framework
-- `@rinardnick/ts-mcp-client` for MCP client functionality
+- `@rinardnick/client_mcp` for MCP client functionality
 - Server-sent events (SSE) for real-time message streaming
 - Child process management for MCP tool servers
 

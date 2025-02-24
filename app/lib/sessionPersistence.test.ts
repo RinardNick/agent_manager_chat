@@ -4,9 +4,9 @@ import {
   LLMConfig,
   ServerConfig,
   SessionManager as TSMCPSessionManager,
-} from '@rinardnick/ts-mcp-client';
+} from '@rinardnick/client_mcp';
 
-// Mock the ts-mcp-client module
+// Mock the client_mcp module
 const mockTSMCPSessionManager = {
   initializeSession: vi.fn(),
   sendMessage: vi.fn(),
@@ -16,7 +16,7 @@ const mockTSMCPSessionManager = {
   updateSessionActivity: vi.fn(),
 };
 
-vi.mock('@rinardnick/ts-mcp-client', () => {
+vi.mock('@rinardnick/client_mcp', () => {
   return {
     SessionManager: vi.fn().mockImplementation(() => mockTSMCPSessionManager),
   };

@@ -1,4 +1,4 @@
-import { SessionManager, LLMConfig } from '@rinardnick/ts-mcp-client';
+import { SessionManager, LLMConfig } from '@rinardnick/client_mcp';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDefaultConfigPath } from '../../../lib/configLoader';
 import { loadConfig } from '../../../lib/configLoader';

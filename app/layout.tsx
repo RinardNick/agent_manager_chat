@@ -6,7 +6,7 @@ const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'Chat UI',
-  description: 'A simple chat interface using ts-mcp-client',
+  description: 'A simple chat interface using client_mcp',
 };
 
 export default function RootLayout({

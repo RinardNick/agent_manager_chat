@@ -3,7 +3,7 @@ import {
   SessionManager as TSMCPSessionManager,
   ChatSession,
   ServerConfig,
-} from '@rinardnick/ts-mcp-client';
+} from '@rinardnick/client_mcp';
 
 interface UISession {
   id: string;

@@ -12,10 +12,10 @@ export default defineConfig({
     setupFiles: [path.resolve(__dirname, './vitest.setup.ts')],
     alias: [
       {
-        find: '@rinardnick/ts-mcp-client',
+        find: '@rinardnick/client_mcp',
         replacement: path.resolve(
           __dirname,
-          './app/lib/__mocks__/@rinardnick/ts-mcp-client.ts'
+          './app/lib/__mocks__/@rinardnick/client_mcp.ts'
         ),
       },
     ],
