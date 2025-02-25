@@ -1,139 +1,74 @@
-# MCP Host Application
+# Chat Application with MCP Bypass
 
-This is a Next.js application that demonstrates how to use the TypeScript MCP Client (`@rinardnick/client_mcp`) to create an AI assistant with tool capabilities.
+This project implements a chat application with two interfaces:
 
-## Features
+1. **Original Chat Interface** - Uses the @rinardnick/client_mcp package for tool discovery and chat functionality
+2. **Basic Chat Interface** - A simplified version that bypasses MCP tool discovery and provides core chat functionality
 
-- **Configuration Management**: Load and validate MCP client configuration from a JSON file
-- **Server Management**: Automatically launch and manage MCP tool servers
-- **Chat Interface**: Stream-based chat interface with the AI assistant
-- **Tool Integration**: Seamless integration of tool capabilities from MCP servers
+## Current Issues
+
+The application currently faces an issue with MCP tool discovery:
+
+- When attempting to discover tools using the MCP client, the application encounters a "Method not found" error:
+  ```
+  McpError: MCP error -32601: Method not found
+  ```
+- This error occurs when calling methods such as `client.listTools({})` and `client.listResources({})`
+
+## Implementation Details
+
+### Basic Chat Interface
+
+We've implemented a simplified chat interface that doesn't rely on MCP for tool discovery:
+
+- **API Endpoint**: `/api/chat/basic-session`
+- **Components**:
+  - `BasicChatDemo.tsx` - A React component that provides the UI for the basic chat
+  - `app/basic-chat/page.tsx` - A page that hosts the basic chat demo
+
+### Original Chat Interface
+
+The original chat interface has been modified to default to skipping MCP initialization:
+
+- The `skipMcp` variable in `app/api/chat/[[...params]]/route.ts` defaults to `true`
+- Users can still opt to use MCP by explicitly setting `use_mcp: true` in the request body
+
+### Navigation
+
+A navigation component has been added to allow users to switch between the different chat interfaces:
+
+- **Component**: `Nav.tsx` - A React component that provides navigation links
+- **Layout**: The navigation component is included in `app/layout.tsx`
 
 ## Getting Started
 
-### Prerequisites
-
-- Node.js 18 or higher
-- npm or yarn
-
-### Installation
-
-1. Clone this repository
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-### Configuration
-
-Create a `config.json` file in the root directory with the following structure:
-
-```json
-{
-  "llm": {
-    "type": "claude",
-    "model": "claude-3-sonnet-20240229",
-    "apiKey": "YOUR_API_KEY_HERE",
-    "systemPrompt": "You are a helpful assistant."
-  },
-  "max_tool_calls": 10,
-  "servers": {
-    "filesystem": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-filesystem",
-        "YOUR_FILESYSTEM_WORK_DIR_HERE"
-      ],
-      "env": {}
-    },
-    "terminal": {
-      "command": "npx",
-      "args": [
-        "@rinardnick/mcp-terminal",
-        "--allowed-commands",
-        "[go,python3,uv,npm,npx,git,ls,cd,touch,mv,pwd,mkdir]"
-      ],
-      "env": {}
-    }
-  }
-}
-```
-
-### Running the Application
-
-1. Start the development server:
-   ```bash
-   npm run dev
-   ```
-2. Open [http://localhost:3000](http://localhost:3000) in your browser
-
-## API Endpoints
-
-### Chat Session Management
-
-- `POST /api/chat/session`
-
-  - Create a new chat session
-  - Body: `{ "config": LLMConfig }`
-  - Returns: `{ "sessionId": string, "messages": Message[] }`
-
-- `POST /api/chat/session/{sessionId}/message`
-
-  - Send a message in an existing session
-  - Body: `{ "message": string }`
-  - Returns: Message response
-
-- `GET /api/chat/session/{sessionId}/stream`
-  - Stream messages in real-time
-  - Query params: `message=string`
-  - Returns: Server-sent events stream
-
-## Error Handling
-
-The application includes comprehensive error handling for:
-
-- Configuration validation
-- Server initialization
-- Session management
-- Message processing
-- Tool invocation
-
-All errors are logged and streamed back to the client with appropriate context.
-
-## Architecture
-
-The host application is built with:
-
-- Next.js for the web framework
-- `@rinardnick/client_mcp` for MCP client functionality
-- Server-sent events (SSE) for real-time message streaming
-- Child process management for MCP tool servers
-
-Key components:
-
-- `SessionManager`: Manages chat sessions and tool invocations
-- `ServerManager`: Handles MCP server lifecycle
-- `ConfigLoader`: Loads and validates configuration
-
-## Development
-
-### Running Tests
+To run the application:
 
 ```bash
-npm test
+npm install
+npm run dev
 ```
 
-### Linting
+The application will be available at http://localhost:3000
+
+## Possible Solutions for MCP Issues
+
+To resolve the MCP tool discovery issue, consider:
+
+1. Updating the @rinardnick/client_mcp package to the latest version
+2. Checking if the server implementation is compatible with the MCP protocol
+3. Ensuring the correct servers are configured in the config.json file
+4. Verifying that server commands are accessible and executable in the current environment
+5. Implementing a custom tool discovery mechanism if needed
+
+## Testing
+
+You can test the basic chat functionality using curl:
 
 ```bash
-npm run lint
+# Create a new session
+curl -X POST http://localhost:3000/api/chat/basic-session
+
+# Send a message (replace SESSION_ID with the actual session ID)
+curl -X PUT -H "Content-Type: application/json" -d '{"sessionId":"SESSION_ID","message":"Hello, what can you help me with?"}' http://localhost:3000/api/chat/basic-session
 ```
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a new Pull Request

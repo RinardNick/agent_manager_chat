@@ -1,8 +1,4 @@
-import {
-  SessionManager,
-  LLMConfig,
-  ChatSession as BaseChatSession,
-} from '@rinardnick/client_mcp';
+import { SessionManager, LLMConfig } from '@rinardnick/client_mcp';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDefaultConfigPath } from '../../../lib/configLoader';
 import { loadConfig } from '../../../lib/configLoader';
@@ -11,19 +7,96 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const preferredRegion = 'auto';
 
-// Define extended ChatSession type that includes mcpClient
-interface ChatSession extends BaseChatSession {
-  mcpClient?: {
-    configure: (config: any) => Promise<void>;
-    discoverCapabilities: () => Promise<any>;
-    tools?: any[];
-  };
+// Define basic tools that will be available
+const BUILT_IN_TOOLS = [
+  {
+    name: 'list_files',
+    description: 'List files in a directory',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Path to the directory',
+        },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'read_file',
+    description: 'Read the contents of a file',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Path to the file',
+        },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'write_file',
+    description: 'Write content to a file',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Path to the file',
+        },
+        content: {
+          type: 'string',
+          description: 'Content to write',
+        },
+      },
+      required: ['path', 'content'],
+    },
+  },
+];
+
+// Define MCPClient interface with optional methods to match actual implementation
+interface MCPClient {
+  configure: (config: {
+    servers: Record<string, any>;
+    max_tool_calls: number;
+  }) => Promise<void>;
+  discoverCapabilities?: () => Promise<any>;
+  listTools?: () => Promise<any>;
+  listResources?: () => Promise<any>;
+  tools?: any[];
+}
+
+// Create an extended session type that includes mcpClient
+interface ExtendedChatSession {
+  id: string;
+  messages: any[];
+  mcpClient?: MCPClient; // Optional since we might run without it
+  tools?: any[]; // Directly add tools at the session level
 }
 
 // Initialize session manager
 let sessionManager: SessionManager;
 let globalConfig: any;
 let initializationPromise: Promise<void> | null = null;
+
+// Helper function to attach tools to session object
+function attachTools(session: any, tools: any[]) {
+  if (!session) return;
+
+  // Attach tools directly to session object
+  session.tools = tools;
+
+  // If mcpClient exists, also attach tools there
+  if (session.mcpClient) {
+    session.mcpClient.tools = tools;
+  }
+
+  console.log(`[TOOLS] Attached ${tools.length} tools to session`);
+  return session;
+}
 
 async function initializeIfNeeded() {
   if (!initializationPromise) {
@@ -37,82 +110,18 @@ async function initializeIfNeeded() {
           globalConfig = await loadConfig(configPath);
           console.log('[API] Loaded config:', {
             ...globalConfig,
-            api_key: '[REDACTED]',
+            llm: {
+              ...globalConfig.llm,
+              api_key: '[REDACTED]',
+            },
           });
 
           // Create session manager
           console.log('[API] Creating session manager');
           sessionManager = new SessionManager();
 
-          // Initialize session with LLM config
-          // Check if we have globalConfig.llm (file format) or if the config is flat (env vars format)
-          const llmConfig: LLMConfig = globalConfig.llm
-            ? {
-                type: globalConfig.llm.type,
-                api_key: globalConfig.llm.api_key,
-                system_prompt: globalConfig.llm.system_prompt,
-                model: globalConfig.llm.model,
-                servers: globalConfig.servers,
-              }
-            : {
-                // If globalConfig is already in the right format (from env vars), use it directly
-                type: globalConfig.type,
-                api_key: globalConfig.api_key,
-                system_prompt: globalConfig.system_prompt,
-                model: globalConfig.model,
-                servers: globalConfig.servers,
-              };
-
-          console.log('[API] Using LLM config:', {
-            type: llmConfig.type,
-            model: llmConfig.model,
-            system_prompt: llmConfig.system_prompt,
-            api_key: '[REDACTED]',
-          });
-
-          // Initialize session
-          console.log('[API] Initializing session');
-          try {
-            const session = await sessionManager.initializeSession(llmConfig);
-            console.log('[API] Session initialized successfully:', {
-              id: session.id,
-              hasClient: !!session.mcpClient,
-              messageCount: session.messages?.length || 0,
-            });
-
-            // Configure MCP client if available
-            if (session.mcpClient) {
-              console.log('[API] Configuring MCP client');
-              await session.mcpClient.configure({
-                servers: globalConfig.servers,
-                max_tool_calls: globalConfig.max_tool_calls,
-              });
-              console.log('[API] MCP client configured successfully');
-            }
-
-            console.log('[INIT] Session manager initialized successfully');
-            if (session.mcpClient) {
-              console.log('[INIT] Available tools:', session.mcpClient.tools);
-            }
-          } catch (error) {
-            console.error('[API] Session initialization error details:', {
-              error:
-                error instanceof Error
-                  ? {
-                      name: error.name,
-                      message: error.message,
-                      stack: error.stack,
-                    }
-                  : error,
-              config: {
-                type: llmConfig.type,
-                model: llmConfig.model,
-                system_prompt: llmConfig.system_prompt,
-                api_key_length: llmConfig.api_key.length,
-              },
-            });
-            throw error;
-          }
+          // Success - we don't need to initialize a test session here
+          console.log('[INIT] Session manager initialized successfully');
         } catch (error) {
           console.error('[INIT] Failed to initialize:', error);
           initializationPromise = null;
@@ -211,24 +220,47 @@ export async function POST(request: NextRequest) {
 
     if (path === '/session') {
       try {
-        // Create a new session using the global configuration
-        const session = await sessionManager.initializeSession({
+        // Get request body
+        let useTools = true; // Default to using tools
+        try {
+          const body = await request.json();
+          if (body.disable_tools === true) {
+            useTools = false;
+          }
+        } catch (e) {
+          // No body or invalid JSON, proceed with default settings
+        }
+
+        console.log('[SESSION] Initializing new session with config:', {
+          type: globalConfig.llm.type,
+          model: globalConfig.llm.model,
+          system_prompt: globalConfig.llm.system_prompt,
+          api_key_length: globalConfig.llm.api_key?.length,
+          use_tools: useTools,
+        });
+
+        // Create a new session using the global configuration and cast to our extended type
+        const session = (await sessionManager.initializeSession({
           type: globalConfig.llm.type,
           api_key: globalConfig.llm.api_key,
           system_prompt: globalConfig.llm.system_prompt,
           model: globalConfig.llm.model,
-        });
+        })) as unknown as ExtendedChatSession;
 
-        // Configure MCP client if available
-        if (session.mcpClient) {
-          await session.mcpClient.configure({
-            servers: globalConfig.servers,
-            max_tool_calls: globalConfig.max_tool_calls,
-          });
+        // Attach tools directly to session if needed
+        if (useTools) {
+          console.log('[SESSION] Attaching built-in tools to session');
+          attachTools(session, BUILT_IN_TOOLS);
+        } else {
+          console.log('[SESSION] Tools disabled for this session');
         }
 
         return NextResponse.json(
-          { sessionId: session.id, messages: session.messages },
+          {
+            sessionId: session.id,
+            messages: session.messages,
+            hasTools: useTools && session.tools && session.tools.length > 0,
+          },
           { status: 201 }
         );
       } catch (error) {
