@@ -1,179 +1,168 @@
 import {
-  LLMConfig,
   SessionManager as TSMCPSessionManager,
   ChatSession,
-  ServerConfig,
+  LLMConfig,
 } from '@rinardnick/client_mcp';
+import { UIStateManager } from './uiState';
 
-interface UISession {
-  id: string;
-  uiState: {
-    isLoading: boolean;
-    error: string | null;
-  };
-}
-
-/**
- * SessionManager is responsible for:
- * 1. UI Session Management: Maintaining UI-specific session state and handling error states
- * 2. Chat Session Delegation: Delegating chat operations to the MCP client
- */
 export class SessionManager {
-  private uiSessions: Map<string, UISession>;
-  private tsmpSessionManager: TSMCPSessionManager;
+  private uiStateManager: UIStateManager;
+  private mcpManager: TSMCPSessionManager;
 
   constructor() {
-    this.uiSessions = new Map();
-    this.tsmpSessionManager = new TSMCPSessionManager();
+    this.uiStateManager = new UIStateManager();
+    this.mcpManager = new TSMCPSessionManager();
   }
 
-  async initializeSession(
-    config: LLMConfig,
-    serverConfig?: ServerConfig,
-    maxToolCalls?: number
-  ): Promise<ChatSession> {
+  async initializeSession(config: LLMConfig): Promise<ChatSession> {
     try {
-      const session = await this.tsmpSessionManager.initializeSession(config);
+      // Initialize session through client_mcp
+      const session = await this.mcpManager.initializeSession(config);
 
-      if (serverConfig) {
-        await session.mcpClient?.configure({
-          servers: serverConfig,
-          max_tool_calls: maxToolCalls,
-        });
-        try {
-          await session.mcpClient?.discoverCapabilities();
-        } catch (error) {
-          console.error('Failed to discover capabilities:', error);
-        }
-      }
+      // Initialize UI state
+      this.uiStateManager.initializeState(session.id);
 
-      // Create UI session state
-      const uiSession: UISession = {
-        id: session.id,
-        uiState: {
-          isLoading: false,
-          error: null,
-        },
-      };
-
-      this.uiSessions.set(session.id, uiSession);
       return session;
     } catch (error) {
-      console.error('Failed to initialize session:', error);
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : 'Unknown error initializing session';
+      throw new Error(`Failed to initialize session: ${errorMessage}`);
+    }
+  }
+
+  async sendMessage(sessionId: string, message: string): Promise<void> {
+    const uiState = this.uiStateManager.getState(sessionId);
+    if (!uiState) {
+      throw new Error(`No UI state found for session ${sessionId}`);
+    }
+
+    try {
+      this.uiStateManager.updateState(sessionId, {
+        isLoading: true,
+        error: null,
+      });
+
+      await this.mcpManager.sendMessage(sessionId, message);
+      await this.mcpManager.updateSessionActivity(sessionId);
+
+      this.uiStateManager.updateState(sessionId, {
+        isLoading: false,
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : 'Unknown error sending message';
+      this.uiStateManager.setError(sessionId, errorMessage);
+      throw error;
+    }
+  }
+
+  async sendMessageStream(
+    sessionId: string,
+    message: string
+  ): Promise<
+    AsyncGenerator<{
+      type: string;
+      content?: string;
+      error?: string;
+    }>
+  > {
+    const uiState = this.uiStateManager.getState(sessionId);
+    if (!uiState) {
+      throw new Error(`No UI state found for session ${sessionId}`);
+    }
+
+    try {
+      this.uiStateManager.updateState(sessionId, {
+        isLoading: true,
+        error: null,
+      });
+
+      const stream = this.mcpManager.sendMessageStream(sessionId, message);
+
+      // Create a new generator that updates UI state based on stream events
+      return async function* (this: SessionManager) {
+        try {
+          for await (const chunk of stream) {
+            switch (chunk.type) {
+              case 'thinking':
+                this.uiStateManager.updateState(sessionId, {
+                  isThinking: true,
+                });
+                break;
+              case 'tool_start':
+                this.uiStateManager.updateState(sessionId, {
+                  currentTool: chunk.content,
+                });
+                break;
+              case 'tool_result':
+                this.uiStateManager.updateState(sessionId, {
+                  currentTool: undefined,
+                });
+                break;
+              case 'error':
+                this.uiStateManager.setError(
+                  sessionId,
+                  chunk.error || 'Unknown error'
+                );
+                break;
+              case 'done':
+                this.uiStateManager.updateState(sessionId, {
+                  isLoading: false,
+                  isThinking: false,
+                  currentTool: undefined,
+                });
+                break;
+            }
+            yield chunk;
+          }
+
+          await this.mcpManager.updateSessionActivity(sessionId);
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : 'Unknown streaming error';
+          this.uiStateManager.setError(sessionId, errorMessage);
+          throw error;
+        }
+      }.call(this);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : 'Unknown error initializing stream';
+      this.uiStateManager.setError(sessionId, errorMessage);
       throw error;
     }
   }
 
   async recoverSession(sessionId: string): Promise<ChatSession> {
     try {
-      const session = await this.tsmpSessionManager.getSession(sessionId);
+      const session = await this.mcpManager.getSession(sessionId);
 
-      // Create UI session state if it doesn't exist
-      if (!this.uiSessions.has(sessionId)) {
-        this.uiSessions.set(sessionId, {
-          id: sessionId,
-          uiState: {
-            isLoading: false,
-            error: null,
-          },
-        });
+      // Initialize UI state if it doesn't exist
+      if (!this.uiStateManager.getState(sessionId)) {
+        this.uiStateManager.initializeState(sessionId);
       }
 
       return session;
     } catch (error) {
-      console.error('Failed to recover session:', error);
-      throw error;
-    }
-  }
-
-  private async getOrCreateUISession(sessionId: string): Promise<UISession> {
-    let uiSession = this.uiSessions.get(sessionId);
-
-    if (!uiSession) {
-      // Get session from client to verify it exists
-      await this.tsmpSessionManager.getSession(sessionId);
-
-      // Create UI session
-      uiSession = {
-        id: sessionId,
-        uiState: {
-          isLoading: false,
-          error: null,
-        },
-      };
-
-      this.uiSessions.set(sessionId, uiSession);
-    }
-
-    return uiSession;
-  }
-
-  async sendMessage(sessionId: string, message: string): Promise<void> {
-    const uiSession = await this.getOrCreateUISession(sessionId);
-
-    try {
-      uiSession.uiState.isLoading = true;
-      uiSession.uiState.error = null;
-
-      await this.tsmpSessionManager.sendMessage(sessionId, message);
-      await this.tsmpSessionManager.updateSessionActivity(sessionId);
-    } catch (error) {
-      console.error('Failed to send message:', error);
-      uiSession.uiState.error = 'Failed to send message';
-      throw new Error('Failed to send message');
-    } finally {
-      uiSession.uiState.isLoading = false;
-    }
-  }
-
-  async *sendMessageStream(
-    sessionId: string,
-    message: string
-  ): AsyncGenerator<any, void, unknown> {
-    const uiSession = await this.getOrCreateUISession(sessionId);
-
-    try {
-      uiSession.uiState.isLoading = true;
-      uiSession.uiState.error = null;
-
-      yield* this.tsmpSessionManager.sendMessageStream(sessionId, message);
-      await this.tsmpSessionManager.updateSessionActivity(sessionId);
-    } catch (error) {
-      console.error('Failed to stream message:', error);
-      uiSession.uiState.error = 'Failed to stream message';
-      throw new Error('Failed to stream message');
-    } finally {
-      uiSession.uiState.isLoading = false;
-    }
-  }
-
-  // UI State Management
-  setUIError(sessionId: string, error: string | null): void {
-    const uiSession = this.uiSessions.get(sessionId);
-    if (uiSession) {
-      uiSession.uiState.error = error;
-    }
-  }
-
-  setUILoading(sessionId: string, isLoading: boolean): void {
-    const uiSession = this.uiSessions.get(sessionId);
-    if (uiSession) {
-      uiSession.uiState.isLoading = isLoading;
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : 'Unknown error recovering session';
+      throw new Error(`Failed to recover session: ${errorMessage}`);
     }
   }
 
   getUIState(sessionId: string) {
-    const uiSession = this.uiSessions.get(sessionId);
-    return uiSession?.uiState;
+    return this.uiStateManager.getState(sessionId);
   }
 
   async cleanupSession(sessionId: string): Promise<void> {
-    try {
-      // Clean up UI state only
-      this.uiSessions.delete(sessionId);
-    } catch (error) {
-      console.error('Failed to cleanup UI session:', error);
-      throw error;
-    }
+    // Clean up UI state
+    this.uiStateManager.deleteState(sessionId);
   }
 }

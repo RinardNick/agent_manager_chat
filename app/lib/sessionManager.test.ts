@@ -2,7 +2,6 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { SessionManager } from './sessionManager';
 import {
   LLMConfig,
-  ServerConfig,
   SessionManager as TSMCPSessionManager,
 } from '@rinardnick/client_mcp';
 
@@ -12,144 +11,218 @@ const mockTSMCPSessionManager = {
   sendMessage: vi.fn(),
   sendMessageStream: vi.fn(),
   getSession: vi.fn(),
-  cleanupSession: vi.fn(),
   updateSessionActivity: vi.fn(),
 };
 
-vi.mock('@rinardnick/client_mcp', () => {
-  return {
-    SessionManager: vi.fn().mockImplementation(() => mockTSMCPSessionManager),
-  };
-});
+vi.mock('@rinardnick/client_mcp', () => ({
+  SessionManager: vi.fn().mockImplementation(() => mockTSMCPSessionManager),
+}));
 
-describe('Session Manager Responsibilities', () => {
+describe('Session Manager', () => {
   let sessionManager: SessionManager;
-  let llmConfig: LLMConfig;
-  let mockServers: ServerConfig;
-  let mockCapabilities: any;
-  let mockClientSession: any;
+  let config: LLMConfig;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    llmConfig = {
-      type: 'test-type',
-      model: 'test-model',
+    sessionManager = new SessionManager();
+
+    config = {
+      type: 'claude',
       api_key: 'test-key',
-      system_prompt: 'You are a helpful assistant.',
+      model: 'test-model',
+      system_prompt: 'test prompt',
     };
-    mockServers = {
-      command: 'test-command',
-      args: ['--test'],
-      env: { TEST_ENV: 'test' },
-    };
-    mockCapabilities = {
-      tools: [
-        {
-          name: 'readFile',
-          description: 'Reads a file from the filesystem',
-        },
-        {
-          name: 'writeFile',
-          description: 'Writes content to a file',
-        },
-      ],
-    };
-
-    mockClientSession = {
-      id: 'test-session',
-      mcpClient: {
-        configure: vi.fn().mockResolvedValue(undefined),
-        discoverCapabilities: vi.fn().mockResolvedValue(mockCapabilities),
-        tools: mockCapabilities.tools,
-      },
-    };
-
-    // Configure mock behavior
-    mockTSMCPSessionManager.initializeSession.mockResolvedValue(
-      mockClientSession
-    );
-    mockTSMCPSessionManager.getSession.mockResolvedValue(mockClientSession);
   });
 
-  describe('UI Session Management', () => {
-    it('should maintain UI state separate from chat session', async () => {
-      sessionManager = new SessionManager();
-      const session = await sessionManager.initializeSession(llmConfig);
+  describe('Session Initialization', () => {
+    it('should initialize session with UI state', async () => {
+      const mockSession = {
+        id: 'test-session',
+        config,
+        createdAt: new Date(),
+        lastActivityAt: new Date(),
+        messages: [],
+      };
 
-      expect(session.mcpClient).toBeDefined();
-      expect(session.mcpClient?.tools).toEqual(mockCapabilities.tools);
-    });
+      mockTSMCPSessionManager.initializeSession.mockResolvedValue(mockSession);
 
-    it('should handle UI-specific error states', async () => {
-      mockTSMCPSessionManager.sendMessage.mockRejectedValueOnce(
-        new Error('UI error')
-      );
+      const session = await sessionManager.initializeSession(config);
+      expect(session).toBe(mockSession);
 
-      sessionManager = new SessionManager();
-      const session = await sessionManager.initializeSession(llmConfig);
-
-      await expect(
-        sessionManager.sendMessage(session.id, 'test message')
-      ).rejects.toThrow('Failed to send message');
-    });
-  });
-
-  describe('Chat Session Delegation', () => {
-    it('should delegate chat session management to client', async () => {
-      mockTSMCPSessionManager.sendMessage.mockResolvedValueOnce({
-        role: 'assistant',
-        content: 'test',
+      const uiState = sessionManager.getUIState(session.id);
+      expect(uiState).toEqual({
+        isLoading: false,
+        isThinking: false,
+        error: null,
       });
-
-      sessionManager = new SessionManager();
-      const session = await sessionManager.initializeSession(llmConfig);
-
-      await sessionManager.sendMessage(session.id, 'test message');
-      expect(session.mcpClient).toBeDefined();
     });
 
-    it('should delegate streaming to client', async () => {
-      mockTSMCPSessionManager.sendMessageStream.mockImplementationOnce(
-        async function* () {
-          yield { type: 'content', content: 'test' };
-        }
+    it('should handle initialization errors', async () => {
+      mockTSMCPSessionManager.initializeSession.mockRejectedValue(
+        new Error('Test error')
       );
 
-      sessionManager = new SessionManager();
-      const session = await sessionManager.initializeSession(llmConfig);
+      await expect(sessionManager.initializeSession(config)).rejects.toThrow(
+        'Failed to initialize session: Test error'
+      );
+    });
+  });
 
-      const stream = sessionManager.sendMessageStream(
-        session.id,
+  describe('Message Handling', () => {
+    const sessionId = 'test-session';
+
+    beforeEach(async () => {
+      const mockSession = { id: sessionId };
+      mockTSMCPSessionManager.initializeSession.mockResolvedValue(mockSession);
+      await sessionManager.initializeSession(config);
+    });
+
+    it('should send message and update UI state', async () => {
+      mockTSMCPSessionManager.sendMessage.mockResolvedValue(undefined);
+
+      await sessionManager.sendMessage(sessionId, 'test message');
+
+      const uiState = sessionManager.getUIState(sessionId);
+      expect(uiState?.isLoading).toBe(false);
+      expect(uiState?.error).toBeNull();
+
+      expect(mockTSMCPSessionManager.sendMessage).toHaveBeenCalledWith(
+        sessionId,
         'test message'
       );
-      expect(stream).toBeDefined();
+      expect(
+        mockTSMCPSessionManager.updateSessionActivity
+      ).toHaveBeenCalledWith(sessionId);
+    });
+
+    it('should handle message errors', async () => {
+      mockTSMCPSessionManager.sendMessage.mockRejectedValue(
+        new Error('Test error')
+      );
+
+      await expect(
+        sessionManager.sendMessage(sessionId, 'test message')
+      ).rejects.toThrow('Test error');
+
+      const uiState = sessionManager.getUIState(sessionId);
+      expect(uiState?.error).toBe('Test error');
+      expect(uiState?.isLoading).toBe(false);
+    });
+
+    it('should stream messages with UI state updates', async () => {
+      const mockStream = (async function* () {
+        yield { type: 'thinking' };
+        yield { type: 'tool_start', content: 'test-tool' };
+        yield { type: 'tool_result' };
+        yield { type: 'content', content: 'test response' };
+        yield { type: 'done' };
+      })();
+
+      mockTSMCPSessionManager.sendMessageStream.mockReturnValue(mockStream);
+
+      const stream = await sessionManager.sendMessageStream(
+        sessionId,
+        'test message'
+      );
+
+      const chunks = [];
+      for await (const chunk of stream) {
+        chunks.push(chunk);
+
+        // Check UI state after each chunk
+        const uiState = sessionManager.getUIState(sessionId);
+        switch (chunk.type) {
+          case 'thinking':
+            expect(uiState?.isThinking).toBe(true);
+            break;
+          case 'tool_start':
+            expect(uiState?.currentTool).toBe('test-tool');
+            break;
+          case 'tool_result':
+            expect(uiState?.currentTool).toBeUndefined();
+            break;
+          case 'done':
+            expect(uiState?.isLoading).toBe(false);
+            expect(uiState?.isThinking).toBe(false);
+            expect(uiState?.currentTool).toBeUndefined();
+            break;
+        }
+      }
+
+      expect(chunks).toHaveLength(5);
+      expect(
+        mockTSMCPSessionManager.updateSessionActivity
+      ).toHaveBeenCalledWith(sessionId);
+    });
+
+    it('should handle streaming errors', async () => {
+      const mockStream = (async function* () {
+        yield { type: 'thinking' };
+        throw new Error('Test error');
+      })();
+
+      mockTSMCPSessionManager.sendMessageStream.mockReturnValue(mockStream);
+
+      const stream = await sessionManager.sendMessageStream(
+        sessionId,
+        'test message'
+      );
+
+      await expect(async () => {
+        for await (const _ of stream) {
+          // consume stream
+        }
+      }).rejects.toThrow('Test error');
+
+      const uiState = sessionManager.getUIState(sessionId);
+      expect(uiState?.error).toBe('Test error');
     });
   });
 
-  describe('Error Handling', () => {
-    it('should handle client initialization errors', async () => {
-      mockClientSession.mcpClient.configure.mockRejectedValueOnce(
-        new Error('Failed to initialize client')
-      );
+  describe('Session Recovery', () => {
+    it('should recover session and initialize UI state', async () => {
+      const mockSession = {
+        id: 'test-session',
+        config,
+        createdAt: new Date(),
+        lastActivityAt: new Date(),
+        messages: [],
+      };
 
-      sessionManager = new SessionManager();
+      mockTSMCPSessionManager.getSession.mockResolvedValue(mockSession);
 
-      await expect(
-        sessionManager.initializeSession(llmConfig, mockServers)
-      ).rejects.toThrow('Failed to initialize client');
+      const session = await sessionManager.recoverSession('test-session');
+      expect(session).toBe(mockSession);
+
+      const uiState = sessionManager.getUIState(session.id);
+      expect(uiState).toEqual({
+        isLoading: false,
+        isThinking: false,
+        error: null,
+      });
     });
 
-    it('should handle message sending errors', async () => {
-      mockTSMCPSessionManager.sendMessage.mockRejectedValueOnce(
-        new Error('Failed to send message')
+    it('should handle recovery errors', async () => {
+      mockTSMCPSessionManager.getSession.mockRejectedValue(
+        new Error('Test error')
       );
 
-      sessionManager = new SessionManager();
-      const session = await sessionManager.initializeSession(llmConfig);
-
       await expect(
-        sessionManager.sendMessage(session.id, 'test message')
-      ).rejects.toThrow('Failed to send message');
+        sessionManager.recoverSession('test-session')
+      ).rejects.toThrow('Failed to recover session: Test error');
+    });
+  });
+
+  describe('Session Cleanup', () => {
+    it('should clean up UI state', async () => {
+      const mockSession = { id: 'test-session' };
+      mockTSMCPSessionManager.initializeSession.mockResolvedValue(mockSession);
+
+      const session = await sessionManager.initializeSession(config);
+      expect(sessionManager.getUIState(session.id)).toBeDefined();
+
+      await sessionManager.cleanupSession(session.id);
+      expect(sessionManager.getUIState(session.id)).toBeNull();
     });
   });
 });
