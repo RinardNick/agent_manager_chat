@@ -75,6 +75,8 @@ interface ExtendedChatSession {
   messages: any[];
   mcpClient?: MCPClient; // Optional since we might run without it
   tools?: any[]; // Directly add tools at the session level
+  config?: any; // Added for the new formatToolsForLLM function
+  formatToolsForLLM?: () => any; // Function to format tools for the LLM
 }
 
 // Initialize session manager
@@ -93,6 +95,31 @@ function attachTools(session: any, tools: any[]) {
   if (session.mcpClient) {
     session.mcpClient.tools = tools;
   }
+
+  // Add a special function to format tools for Anthropic or other LLMs
+  session.formatToolsForLLM = function () {
+    if (!this.tools || this.tools.length === 0) {
+      return null;
+    }
+
+    // Format depends on the LLM type
+    const llmType = this.config?.type || 'claude';
+
+    if (llmType === 'claude') {
+      // Format for Anthropic Claude - using the required schema
+      return {
+        type: 'tools',
+        tools: this.tools.map((tool: any) => ({
+          name: tool.name,
+          description: tool.description,
+          input_schema: tool.inputSchema,
+        })),
+      };
+    }
+
+    // Default format
+    return { tools: this.tools };
+  };
 
   console.log(`[TOOLS] Attached ${tools.length} tools to session`);
   return session;
@@ -131,6 +158,22 @@ async function initializeIfNeeded() {
     })();
   }
   await initializationPromise;
+}
+
+// Helper function to format tools for the Claude API
+function formatClaudeTools(tools: any[]) {
+  if (!tools || tools.length === 0) {
+    return null;
+  }
+
+  return {
+    type: 'tools',
+    tools: tools.map(tool => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.inputSchema,
+    })),
+  };
 }
 
 export async function GET(request: NextRequest) {
@@ -291,8 +334,64 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        const response = await sessionManager.sendMessage(sessionId, message);
-        return NextResponse.json(response);
+        // Get the session
+        const session = (await sessionManager.getSession(
+          sessionId
+        )) as unknown as ExtendedChatSession;
+
+        if (!session) {
+          return NextResponse.json(
+            { error: 'Session not found' },
+            { status: 404 }
+          );
+        }
+
+        // Prepare tools if available
+        let toolsForLLM = null;
+        if (session.tools && session.tools.length > 0) {
+          console.log(
+            `[MESSAGE] Session ${sessionId} has ${session.tools.length} tools available`
+          );
+          toolsForLLM = formatClaudeTools(session.tools);
+          console.log(
+            '[MESSAGE] Formatted tools for Claude:',
+            JSON.stringify(toolsForLLM)
+          );
+        } else {
+          console.log('[MESSAGE] No tools available for this session');
+        }
+
+        // Instead of relying on internal formatting, manually send the tools to Anthropic
+        // This is a patch based on the assumption that we need to manually attach tools
+        const anthropicOptions = {
+          temperature: 0.7,
+          max_tokens: 1000,
+          tools: toolsForLLM,
+        };
+
+        console.log(
+          '[MESSAGE] Sending message with Anthropic options:',
+          JSON.stringify({
+            ...anthropicOptions,
+            tools: anthropicOptions.tools ? 'Included' : 'None',
+          })
+        );
+
+        // Attempt to pass anthropicOptions to the sendMessage function
+        // Use as any to bypass the type checking since we're patching the function call
+        try {
+          const response = await (sessionManager.sendMessage as any)(
+            sessionId,
+            message,
+            anthropicOptions
+          );
+          return NextResponse.json(response);
+        } catch (err) {
+          console.log('[MESSAGE] Error with options, trying without options');
+          // Fallback to standard sendMessage without options
+          const response = await sessionManager.sendMessage(sessionId, message);
+          return NextResponse.json(response);
+        }
       } catch (error) {
         console.error('Error sending message:', error);
         return NextResponse.json(
