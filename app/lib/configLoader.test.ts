@@ -1,119 +1,146 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import fs from 'fs/promises';
-import path from 'path';
-import { loadConfig, getDefaultConfigPath } from './configLoader';
-import { ConfigValidationError } from './config';
+import { loadConfig, loadConfigFromEnv } from './configLoader';
+import { LLMConfig } from '@rinardnick/client_mcp';
 
-vi.mock('fs/promises');
-vi.mock('path', () => {
-  return {
-    default: {
-      join: vi.fn(),
-    },
-    join: vi.fn(),
-  };
-});
+// Mock the client_mcp module
+vi.mock('@rinardnick/client_mcp', () => ({
+  loadConfig: vi.fn(),
+  LLMConfig: undefined, // TypeScript type only
+}));
 
-describe('Configuration Loader', () => {
-  const mockFs = fs as unknown as {
-    readFile: ReturnType<typeof vi.fn>;
-    access: ReturnType<typeof vi.fn>;
-  };
-  const validConfig = {
-    llm: {
-      type: 'claude',
-      model: 'claude-3-sonnet-20240229',
-      api_key: 'test-key',
-      system_prompt: 'You are a helpful assistant.',
-    },
-    max_tool_calls: 10,
-    servers: {
-      fileSystem: {
-        command: 'node',
-        args: ['server.js'],
-        env: {
-          PORT: '3001',
-          SERVER_TYPE: 'filesystem',
-        },
-      },
-    },
-  };
-
+describe('Config Loading', () => {
   beforeEach(() => {
+    vi.resetModules();
     vi.clearAllMocks();
-    vi.spyOn(process, 'cwd').mockReturnValue('/current/working/dir');
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_MODEL;
+    delete process.env.SYSTEM_PROMPT;
   });
 
   describe('loadConfig', () => {
-    it('should load a valid configuration file', async () => {
-      vi.mocked(mockFs.readFile).mockResolvedValue(JSON.stringify(validConfig));
-
-      const config = await loadConfig('config.json');
-      expect(config).toEqual(validConfig);
-      expect(mockFs.readFile).toHaveBeenCalledWith('config.json', 'utf-8');
-    });
-
-    it('should throw error for invalid JSON', async () => {
-      vi.mocked(mockFs.readFile).mockResolvedValue('invalid json');
-
-      await expect(loadConfig('config.json')).rejects.toThrow(
-        'Failed to load configuration'
-      );
-    });
-
-    it('should throw error for invalid configuration', async () => {
-      const invalidConfig = {
+    it('should load and transform config from file', async () => {
+      const mockMCPConfig = {
         llm: {
           type: 'claude',
-          // Missing required fields
+          api_key: 'test-key',
+          model: 'test-model',
+          system_prompt: 'test prompt',
+        },
+        servers: {
+          filesystem: {
+            command: 'npx',
+            args: ['test'],
+            env: {},
+          },
         },
       };
 
-      vi.mocked(mockFs.readFile).mockResolvedValue(
-        JSON.stringify(invalidConfig)
+      const { loadConfig: mockLoadConfig } = await import(
+        '@rinardnick/client_mcp'
       );
+      vi.mocked(mockLoadConfig).mockResolvedValue(mockMCPConfig);
 
-      await expect(loadConfig('config.json')).rejects.toThrow(
-        'Failed to load configuration'
+      const config = await loadConfig('test-path');
+
+      expect(config).toEqual({
+        type: 'claude',
+        api_key: 'test-key',
+        model: 'test-model',
+        system_prompt: 'test prompt',
+        servers: {
+          filesystem: {
+            command: 'npx',
+            args: ['test'],
+            env: {},
+          },
+        },
+      });
+
+      expect(mockLoadConfig).toHaveBeenCalledWith('test-path');
+    });
+
+    it('should handle errors from client_mcp loadConfig', async () => {
+      const { loadConfig: mockLoadConfig } = await import(
+        '@rinardnick/client_mcp'
       );
+      vi.mocked(mockLoadConfig).mockRejectedValue(new Error('Test error'));
+
+      await expect(loadConfig('test-path')).rejects.toThrow('Test error');
     });
   });
 
-  describe('getDefaultConfigPath', () => {
-    it('should return config path from current working directory if exists', async () => {
-      const cwdPath = '/current/working/dir';
-      const expectedPath = '/current/working/dir/config.json';
+  describe('loadConfigFromEnv', () => {
+    it('should create config from environment variables', () => {
+      process.env.ANTHROPIC_API_KEY = 'test-key';
+      process.env.ANTHROPIC_MODEL = 'test-model';
+      process.env.SYSTEM_PROMPT = 'test prompt';
 
-      vi.mocked(path.join).mockReturnValueOnce(expectedPath);
-      vi.mocked(mockFs.access).mockResolvedValueOnce(undefined);
+      const config = loadConfigFromEnv();
 
-      const configPath = await getDefaultConfigPath();
-      expect(configPath).toBe(expectedPath);
-      expect(mockFs.access).toHaveBeenCalledWith(expectedPath);
+      expect(config).toEqual({
+        type: 'claude',
+        api_key: 'test-key',
+        model: 'test-model',
+        system_prompt: 'test prompt',
+        servers: {
+          filesystem: {
+            command: 'npx',
+            args: [
+              '-y',
+              '@modelcontextprotocol/server-filesystem',
+              '/workspace',
+            ],
+            env: {},
+          },
+          terminal: {
+            command: 'npx',
+            args: [
+              '@rinardnick/mcp-terminal',
+              '--allowed-commands',
+              '[go,python3,uv,npm,npx,git,ls,cd,touch,mv,pwd,mkdir]',
+            ],
+            env: {},
+          },
+        },
+      });
     });
 
-    it('should return config path from app directory if not in cwd', async () => {
-      const cwdPath = '/current/working/dir';
-      const appPath = '/app/root/config.json';
+    it('should use defaults when optional environment variables are not set', () => {
+      process.env.ANTHROPIC_API_KEY = 'test-key';
 
-      vi.mocked(path.join)
-        .mockReturnValueOnce('/current/working/dir/config.json')
-        .mockReturnValueOnce(appPath);
+      const config = loadConfigFromEnv();
 
-      vi.mocked(mockFs.access)
-        .mockRejectedValueOnce(new Error('Not found'))
-        .mockResolvedValueOnce(undefined);
-
-      const configPath = await getDefaultConfigPath();
-      expect(configPath).toBe(appPath);
-      expect(mockFs.access).toHaveBeenCalledTimes(2);
+      expect(config).toEqual({
+        type: 'claude',
+        api_key: 'test-key',
+        model: 'claude-3-sonnet-20240229',
+        system_prompt: 'You are a helpful assistant.',
+        servers: {
+          filesystem: {
+            command: 'npx',
+            args: [
+              '-y',
+              '@modelcontextprotocol/server-filesystem',
+              '/workspace',
+            ],
+            env: {},
+          },
+          terminal: {
+            command: 'npx',
+            args: [
+              '@rinardnick/mcp-terminal',
+              '--allowed-commands',
+              '[go,python3,uv,npm,npx,git,ls,cd,touch,mv,pwd,mkdir]',
+            ],
+            env: {},
+          },
+        },
+      });
     });
 
-    it('should throw error if config not found in either location', async () => {
-      vi.mocked(mockFs.access).mockRejectedValue(new Error('Not found'));
-
-      await expect(getDefaultConfigPath()).rejects.toThrow(
-        'No config.json found'
+    it('should throw error when ANTHROPIC_API_KEY is not set', () => {
+      expect(() => loadConfigFromEnv()).toThrow(
+        'ANTHROPIC_API_KEY environment variable is required'
       );
     });
   });

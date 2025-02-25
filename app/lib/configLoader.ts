@@ -1,43 +1,43 @@
-import fs from 'fs/promises';
-import path from 'path';
-import { MCPConfig, validateConfig } from './config';
+import { loadConfig as loadMCPConfig, LLMConfig } from '@rinardnick/client_mcp';
 
-export async function loadConfig(configPath: string): Promise<MCPConfig> {
-  try {
-    console.log('[CONFIG] Loading config from:', configPath);
-    const configContent = await fs.readFile(configPath, 'utf-8');
-    console.log('[CONFIG] Raw config content:', configContent);
-    const config = JSON.parse(configContent);
-    console.log('[CONFIG] Parsed config:', config);
-    return validateConfig(config);
-  } catch (error) {
-    console.error('[CONFIG] Error loading config:', error);
-    if (error instanceof Error) {
-      throw new Error(`Failed to load configuration: ${error.message}`);
-    }
-    throw new Error('Failed to load configuration: Unknown error');
-  }
+export async function loadConfig(configPath: string): Promise<LLMConfig> {
+  const config = await loadMCPConfig(configPath);
+  return {
+    type: config.llm.type,
+    api_key: config.llm.api_key,
+    model: config.llm.model,
+    system_prompt: config.llm.system_prompt,
+    servers: config.servers,
+  };
 }
 
-export async function getDefaultConfigPath(): Promise<string> {
-  // First check if there's a config file in the current working directory
-  const cwdConfig = path.join(process.cwd(), 'config.json');
-  console.log('[CONFIG] Checking CWD config path:', cwdConfig);
-  try {
-    await fs.access(cwdConfig);
-    console.log('[CONFIG] Found config in CWD:', cwdConfig);
-    return cwdConfig;
-  } catch {
-    // If not found in cwd, check the app directory
-    const appConfig = path.join(__dirname, '..', '..', 'config.json');
-    console.log('[CONFIG] Checking app config path:', appConfig);
-    try {
-      await fs.access(appConfig);
-      console.log('[CONFIG] Found config in app directory:', appConfig);
-      return appConfig;
-    } catch {
-      console.error('[CONFIG] No config.json found in either location');
-      throw new Error('No config.json found in current directory or app root');
-    }
+// Export a convenience function to load config from environment variables
+export function loadConfigFromEnv(): LLMConfig {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error('ANTHROPIC_API_KEY environment variable is required');
   }
+
+  return {
+    type: 'claude',
+    api_key: apiKey,
+    model: process.env.ANTHROPIC_MODEL || 'claude-3-sonnet-20240229',
+    system_prompt: process.env.SYSTEM_PROMPT || 'You are a helpful assistant.',
+    servers: {
+      filesystem: {
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-filesystem', '/workspace'],
+        env: {},
+      },
+      terminal: {
+        command: 'npx',
+        args: [
+          '@rinardnick/mcp-terminal',
+          '--allowed-commands',
+          '[go,python3,uv,npm,npx,git,ls,cd,touch,mv,pwd,mkdir]',
+        ],
+        env: {},
+      },
+    },
+  };
 }
