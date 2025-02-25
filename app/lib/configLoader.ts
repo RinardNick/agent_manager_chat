@@ -1,5 +1,6 @@
 import { loadConfig as loadMCPConfig, LLMConfig } from '@rinardnick/client_mcp';
 import path from 'path';
+import fs from 'fs';
 
 // Function to get default config path
 export async function getDefaultConfigPath(): Promise<string> {
@@ -10,14 +11,32 @@ export async function getDefaultConfigPath(): Promise<string> {
 }
 
 export async function loadConfig(configPath: string): Promise<LLMConfig> {
-  const config = await loadMCPConfig(configPath);
-  return {
-    type: config.llm.type,
-    api_key: config.llm.api_key,
-    model: config.llm.model,
-    system_prompt: config.llm.system_prompt,
-    servers: config.servers,
-  };
+  try {
+    // Check if file exists before trying to load
+    if (!fs.existsSync(configPath)) {
+      console.log(
+        `[CONFIG] Config file not found at ${configPath}, falling back to environment variables`
+      );
+      return loadConfigFromEnv();
+    }
+
+    const config = await loadMCPConfig(configPath);
+    return {
+      type: config.llm.type,
+      api_key: config.llm.api_key,
+      model: config.llm.model,
+      system_prompt: config.llm.system_prompt,
+      servers: config.servers,
+    };
+  } catch (error) {
+    console.log(
+      `[CONFIG] Error loading config from ${configPath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    console.log('[CONFIG] Falling back to environment variables');
+    return loadConfigFromEnv();
+  }
 }
 
 // Export a convenience function to load config from environment variables
