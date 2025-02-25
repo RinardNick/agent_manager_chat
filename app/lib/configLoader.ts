@@ -20,7 +20,9 @@ export async function loadConfig(configPath: string): Promise<LLMConfig> {
       return loadConfigFromEnv();
     }
 
+    console.log(`[CONFIG] Loading config from file: ${configPath}`);
     const config = await loadMCPConfig(configPath);
+    console.log(`[CONFIG] Successfully loaded config from file`);
     return {
       type: config.llm.type,
       api_key: config.llm.api_key,
@@ -41,10 +43,32 @@ export async function loadConfig(configPath: string): Promise<LLMConfig> {
 
 // Export a convenience function to load config from environment variables
 export function loadConfigFromEnv(): LLMConfig {
+  console.log('[CONFIG] Attempting to load config from environment variables');
   const apiKey = process.env.ANTHROPIC_API_KEY;
+
+  // Debug what environment variables we have available
+  console.log('[CONFIG] Environment variables found:');
+  console.log(
+    '[CONFIG] ANTHROPIC_API_KEY:',
+    apiKey ? 'Found (not showing value)' : 'Not found'
+  );
+  console.log(
+    '[CONFIG] ANTHROPIC_MODEL:',
+    process.env.ANTHROPIC_MODEL || 'Not found, using default'
+  );
+  console.log(
+    '[CONFIG] SYSTEM_PROMPT:',
+    process.env.SYSTEM_PROMPT || 'Not found, using default'
+  );
+
   if (!apiKey) {
+    console.error(
+      '[CONFIG] ANTHROPIC_API_KEY environment variable is required but not found'
+    );
     throw new Error('ANTHROPIC_API_KEY environment variable is required');
   }
+
+  console.log('[CONFIG] Successfully loaded config from environment variables');
 
   return {
     type: 'claude',
