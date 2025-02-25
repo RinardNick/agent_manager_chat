@@ -1,4 +1,13 @@
 import { loadConfig as loadMCPConfig, LLMConfig } from '@rinardnick/client_mcp';
+import path from 'path';
+
+// Function to get default config path
+export async function getDefaultConfigPath(): Promise<string> {
+  return (
+    process.env.CONFIG_PATH ||
+    path.resolve(process.cwd(), '.mcp', 'config.json')
+  );
+}
 
 export async function loadConfig(configPath: string): Promise<LLMConfig> {
   const config = await loadMCPConfig(configPath);
