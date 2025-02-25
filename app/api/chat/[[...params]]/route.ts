@@ -1,4 +1,8 @@
-import { SessionManager, LLMConfig } from '@rinardnick/client_mcp';
+import {
+  SessionManager,
+  LLMConfig,
+  ChatSession as BaseChatSession,
+} from '@rinardnick/client_mcp';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDefaultConfigPath } from '../../../lib/configLoader';
 import { loadConfig } from '../../../lib/configLoader';
@@ -6,6 +10,15 @@ import { loadConfig } from '../../../lib/configLoader';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const preferredRegion = 'auto';
+
+// Define extended ChatSession type that includes mcpClient
+interface ChatSession extends BaseChatSession {
+  mcpClient?: {
+    configure: (config: any) => Promise<void>;
+    discoverCapabilities: () => Promise<any>;
+    tools?: any[];
+  };
+}
 
 // Initialize session manager
 let sessionManager: SessionManager;
@@ -24,10 +37,7 @@ async function initializeIfNeeded() {
           globalConfig = await loadConfig(configPath);
           console.log('[API] Loaded config:', {
             ...globalConfig,
-            llm: {
-              ...globalConfig.llm,
-              api_key: '[REDACTED]',
-            },
+            api_key: '[REDACTED]',
           });
 
           // Create session manager
@@ -35,13 +45,24 @@ async function initializeIfNeeded() {
           sessionManager = new SessionManager();
 
           // Initialize session with LLM config
-          const llmConfig: LLMConfig = {
-            type: globalConfig.llm.type,
-            api_key: globalConfig.llm.api_key,
-            system_prompt: globalConfig.llm.system_prompt,
-            model: globalConfig.llm.model,
-            servers: globalConfig.servers,
-          };
+          // Check if we have globalConfig.llm (file format) or if the config is flat (env vars format)
+          const llmConfig: LLMConfig = globalConfig.llm
+            ? {
+                type: globalConfig.llm.type,
+                api_key: globalConfig.llm.api_key,
+                system_prompt: globalConfig.llm.system_prompt,
+                model: globalConfig.llm.model,
+                servers: globalConfig.servers,
+              }
+            : {
+                // If globalConfig is already in the right format (from env vars), use it directly
+                type: globalConfig.type,
+                api_key: globalConfig.api_key,
+                system_prompt: globalConfig.system_prompt,
+                model: globalConfig.model,
+                servers: globalConfig.servers,
+              };
+
           console.log('[API] Using LLM config:', {
             type: llmConfig.type,
             model: llmConfig.model,
