@@ -69,10 +69,9 @@ describe('Memory Leak Detection', () => {
 
   it('should properly clean up UI state on explicit end', async () => {
     const sessionManager = new SessionManager();
-    const sessionId = 'test-session';
 
     // Initialize session and UI state
-    await sessionManager.initializeSession({
+    const session = await sessionManager.initializeSession({
       type: 'test',
       api_key: 'test-key',
       system_prompt: 'You are a test assistant',
@@ -80,16 +79,16 @@ describe('Memory Leak Detection', () => {
     });
 
     // Simulate some message sending
-    await sessionManager.sendMessage(sessionId, 'test message');
+    await sessionManager.sendMessage(session.id, 'test message');
 
     // Get initial memory usage
     const initialMemoryUsage = process.memoryUsage().heapUsed;
 
     // Clean up UI state
-    await sessionManager.cleanupSession(sessionId);
+    await sessionManager.cleanupSession(session.id);
 
-    // Verify UI state is cleaned up by checking uiSessions map
-    expect((sessionManager as any).uiSessions.has(sessionId)).toBe(false);
+    // Verify UI state is cleaned up
+    expect(sessionManager.getUIState(session.id)).toBeNull();
 
     // Force garbage collection if available
     if (global.gc) {
@@ -162,10 +161,9 @@ describe('Memory Leak Detection', () => {
     );
 
     // Process stream
-    for await (const _ of sessionManager.sendMessageStream(
-      session.id,
-      'test'
-    )) {
+    const stream = await sessionManager.sendMessageStream(session.id, 'test');
+
+    for await (const _ of stream) {
       // Consume stream
     }
 

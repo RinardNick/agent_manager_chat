@@ -1,29 +1,82 @@
 import {
   SessionManager as TSMCPSessionManager,
-  ChatSession,
+  ChatSession as TSMCPChatSession,
   LLMConfig,
+  ServerConfig,
 } from '@rinardnick/client_mcp';
 import { UIStateManager } from './uiState';
 
+interface MCPClient {
+  configure: (config: {
+    servers: ServerConfig;
+    max_tool_calls: number;
+  }) => Promise<void>;
+  discoverCapabilities: () => Promise<any>;
+  tools: any[];
+}
+
+interface ChatSession extends TSMCPChatSession {
+  mcpClient?: MCPClient;
+}
+
+interface ExtendedTSMCPSessionManager extends TSMCPSessionManager {
+  cleanupSession: (sessionId: string) => Promise<void>;
+}
+
 export class SessionManager {
   private uiStateManager: UIStateManager;
-  private mcpManager: TSMCPSessionManager;
+  private mcpManager: ExtendedTSMCPSessionManager;
 
   constructor() {
     this.uiStateManager = new UIStateManager();
-    this.mcpManager = new TSMCPSessionManager();
+    this.mcpManager = new TSMCPSessionManager() as ExtendedTSMCPSessionManager;
   }
 
-  async initializeSession(config: LLMConfig): Promise<ChatSession> {
+  async initializeSession(
+    config: LLMConfig,
+    servers?: ServerConfig,
+    maxToolCalls?: number
+  ): Promise<ChatSession> {
+    let session: ChatSession | undefined;
+
     try {
       // Initialize session through client_mcp
-      const session = await this.mcpManager.initializeSession(config);
+      session = await this.mcpManager.initializeSession(config);
 
       // Initialize UI state
       this.uiStateManager.initializeState(session.id);
 
+      // Configure client if servers are provided
+      if (servers) {
+        try {
+          await session.mcpClient?.configure({
+            servers,
+            max_tool_calls: maxToolCalls || 10,
+          });
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error
+              ? error.message
+              : 'Unknown error configuring client';
+          throw new Error(`Failed to configure client: ${errorMessage}`);
+        }
+      }
+
+      // Discover capabilities
+      try {
+        await session.mcpClient?.discoverCapabilities();
+      } catch (error) {
+        // Log the error but don't fail initialization
+        console.warn('Failed to discover capabilities:', error);
+      }
+
       return session;
     } catch (error) {
+      // Clean up UI state if initialization fails
+      if (session?.id) {
+        this.uiStateManager.deleteState(session.id);
+      }
+
       const errorMessage =
         error instanceof Error
           ? error.message
@@ -84,33 +137,34 @@ export class SessionManager {
       const stream = this.mcpManager.sendMessageStream(sessionId, message);
 
       // Create a new generator that updates UI state based on stream events
-      return async function* (this: SessionManager) {
+      const self = this; // Capture this context
+      return (async function* () {
         try {
           for await (const chunk of stream) {
             switch (chunk.type) {
               case 'thinking':
-                this.uiStateManager.updateState(sessionId, {
+                self.uiStateManager.updateState(sessionId, {
                   isThinking: true,
                 });
                 break;
               case 'tool_start':
-                this.uiStateManager.updateState(sessionId, {
+                self.uiStateManager.updateState(sessionId, {
                   currentTool: chunk.content,
                 });
                 break;
               case 'tool_result':
-                this.uiStateManager.updateState(sessionId, {
+                self.uiStateManager.updateState(sessionId, {
                   currentTool: undefined,
                 });
                 break;
               case 'error':
-                this.uiStateManager.setError(
+                self.uiStateManager.setError(
                   sessionId,
                   chunk.error || 'Unknown error'
                 );
                 break;
               case 'done':
-                this.uiStateManager.updateState(sessionId, {
+                self.uiStateManager.updateState(sessionId, {
                   isLoading: false,
                   isThinking: false,
                   currentTool: undefined,
@@ -120,14 +174,14 @@ export class SessionManager {
             yield chunk;
           }
 
-          await this.mcpManager.updateSessionActivity(sessionId);
+          await self.mcpManager.updateSessionActivity(sessionId);
         } catch (error) {
           const errorMessage =
             error instanceof Error ? error.message : 'Unknown streaming error';
-          this.uiStateManager.setError(sessionId, errorMessage);
+          self.uiStateManager.setError(sessionId, errorMessage);
           throw error;
         }
-      }.call(this);
+      })();
     } catch (error) {
       const errorMessage =
         error instanceof Error
@@ -162,7 +216,17 @@ export class SessionManager {
   }
 
   async cleanupSession(sessionId: string): Promise<void> {
-    // Clean up UI state
-    this.uiStateManager.deleteState(sessionId);
+    try {
+      // Clean up MCP session first
+      await this.mcpManager.cleanupSession(sessionId);
+      // Then clean up UI state
+      this.uiStateManager.deleteState(sessionId);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : 'Unknown error cleaning up session';
+      throw new Error(`Failed to cleanup session: ${errorMessage}`);
+    }
   }
 }

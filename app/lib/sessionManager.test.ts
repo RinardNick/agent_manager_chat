@@ -12,6 +12,7 @@ const mockTSMCPSessionManager = {
   sendMessageStream: vi.fn(),
   getSession: vi.fn(),
   updateSessionActivity: vi.fn(),
+  cleanupSession: vi.fn(),
 };
 
 vi.mock('@rinardnick/client_mcp', () => ({
