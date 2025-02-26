@@ -27,7 +27,17 @@ export function Nav() {
                   : 'text-foreground/60'
               }`}
             >
-              Home
+              Chat
+            </Link>
+            <Link
+              href="/multi-agent"
+              className={`transition-colors hover:text-foreground/80 ${
+                isActive('/multi-agent')
+                  ? 'text-foreground font-semibold'
+                  : 'text-foreground/60'
+              }`}
+            >
+              Multi-Agent
             </Link>
           </nav>
         </div>

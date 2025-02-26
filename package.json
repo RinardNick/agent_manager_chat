@@ -17,7 +17,7 @@
     "@modelcontextprotocol/server-filesystem": "^2025.1.14",
     "@radix-ui/react-scroll-area": "^1.2.3",
     "@radix-ui/react-slot": "^1.0.2",
-    "@rinardnick/client_mcp": "^1.0.2",
+    "@rinardnick/client_mcp": "^1.1.2",
     "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.0.1",
     "class-variance-authority": "^0.7.0",

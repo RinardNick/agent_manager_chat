@@ -15,6 +15,7 @@ import {
 interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  isStreaming?: boolean;
 }
 
 export function Chat() {
@@ -108,7 +109,17 @@ export function Chat() {
       console.log('[CLIENT] EventSource readyState:', eventSource.readyState);
       console.log('[CLIENT] EventSource url:', eventSource.url);
 
-      let assistantMessage = '';
+      // Create streaming message placeholder
+      const streamingMessageId = Date.now();
+      setMessages(prev => [
+        ...prev,
+        { 
+          role: 'assistant', 
+          content: '', 
+          isStreaming: true 
+        }
+      ]);
+
       let hasReceivedMessage = false;
       let isConnectionEstablished = false;
 
@@ -133,18 +144,24 @@ export function Chat() {
 
           if (data.type === 'content') {
             console.log('[CLIENT] Received content:', data.content);
-            assistantMessage += data.content;
+            
+            // Update streaming message content
             setMessages(prev => {
               const newMessages = [...prev];
-              const lastMessage = newMessages[newMessages.length - 1];
+              // Find the last assistant message (which is the streaming one)
+              const streamingIndex = newMessages.findIndex(
+                msg => msg.role === 'assistant' && msg.isStreaming === true
+              );
 
-              if (lastMessage?.role === 'assistant') {
-                lastMessage.content = assistantMessage;
+              if (streamingIndex !== -1) {
+                // Update content of the streaming message
+                newMessages[streamingIndex].content += data.content;
                 return [...newMessages];
               } else {
+                // Create new message if no streaming message found (shouldn't happen)
                 return [
                   ...newMessages,
-                  { role: 'assistant', content: assistantMessage },
+                  { role: 'assistant', content: data.content, isStreaming: true },
                 ];
               }
             });
@@ -164,6 +181,14 @@ export function Chat() {
             ]);
           } else if (data.type === 'done') {
             console.log('[CLIENT] Stream complete, closing connection');
+            
+            // Mark streaming as complete
+            setMessages(prev => 
+              prev.map(msg => 
+                msg.isStreaming ? { ...msg, isStreaming: false } : msg
+              )
+            );
+            
             eventSource.close();
             setIsLoading(false);
           } else if (data.type === 'error') {
@@ -260,6 +285,7 @@ export function Chat() {
                 }`}
               >
                 {m.content}
+                {m.isStreaming && <span className="ml-1 animate-pulse">▍</span>}
               </span>
             </div>
           ))}
