@@ -154,6 +154,9 @@ export default function MultiAgentChat() {
             : agent
         )
       );
+      
+      // Update status to show we're in progress
+      setStatus('in_progress');
 
       try {
         // Create message streaming from the API
@@ -210,6 +213,9 @@ export default function MultiAgentChat() {
                 role: 'tool',
                 content: `Using tool: ${data.content}`,
               };
+              
+              // Update status to show we're awaiting tool completion
+              setStatus('awaiting_tool');
               
               setAgents(prevAgents =>
                 prevAgents.map(agent =>
@@ -676,7 +682,7 @@ export default function MultiAgentChat() {
           {activeAgent?.conversation.map(message => (
             <div
               key={message.id}
-              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`flex ${message.role === 'user' ? 'justify-end' : message.role === 'system' ? 'justify-center' : 'justify-start'}`}
             >
               <div
                 className={`max-w-[70%] p-3 rounded-lg ${
@@ -685,8 +691,10 @@ export default function MultiAgentChat() {
                     : message.role === 'assistant'
                     ? 'bg-gray-200 text-black'
                     : message.role === 'thinking'
-                    ? 'bg-yellow-100 text-yellow-800'
-                    : 'bg-green-100 text-green-800'
+                    ? 'bg-yellow-100 text-yellow-800 border border-yellow-300'
+                    : message.role === 'tool'
+                    ? 'bg-green-100 text-green-800 border border-green-300'
+                    : 'bg-gray-100 text-gray-800 border border-gray-300 text-sm'
                 }`}
               >
                 {message.role === 'thinking' && (
@@ -716,6 +724,11 @@ export default function MultiAgentChat() {
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Sending
+                </>
+              ) : status === 'awaiting_tool' ? (
+                <>
+                  <Tool className="mr-2 h-4 w-4" />
+                  Using Tools
                 </>
               ) : (
                 'Send'
