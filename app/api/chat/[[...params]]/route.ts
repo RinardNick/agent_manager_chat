@@ -7,123 +7,18 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const preferredRegion = 'auto';
 
-// Define basic tools that will be available
-const BUILT_IN_TOOLS = [
-  {
-    name: 'list_files',
-    description: 'List files in a directory',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        path: {
-          type: 'string',
-          description: 'Path to the directory',
-        },
-      },
-      required: ['path'],
-    },
-  },
-  {
-    name: 'read_file',
-    description: 'Read the contents of a file',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        path: {
-          type: 'string',
-          description: 'Path to the file',
-        },
-      },
-      required: ['path'],
-    },
-  },
-  {
-    name: 'write_file',
-    description: 'Write content to a file',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        path: {
-          type: 'string',
-          description: 'Path to the file',
-        },
-        content: {
-          type: 'string',
-          description: 'Content to write',
-        },
-      },
-      required: ['path', 'content'],
-    },
-  },
-];
-
-// Define MCPClient interface with optional methods to match actual implementation
-interface MCPClient {
-  configure: (config: {
-    servers: Record<string, any>;
-    max_tool_calls: number;
-  }) => Promise<void>;
-  discoverCapabilities?: () => Promise<any>;
-  listTools?: () => Promise<any>;
-  listResources?: () => Promise<any>;
-  tools?: any[];
-}
-
-// Create an extended session type that includes mcpClient
+// Create an extended session type with our custom properties
 interface ExtendedChatSession {
   id: string;
   messages: any[];
-  mcpClient?: MCPClient; // Optional since we might run without it
-  tools?: any[]; // Directly add tools at the session level
-  config?: any; // Added for the new formatToolsForLLM function
-  formatToolsForLLM?: () => any; // Function to format tools for the LLM
+  config?: any;
+  mcpEnabled?: boolean;
 }
 
 // Initialize session manager
 let sessionManager: SessionManager;
 let globalConfig: any;
 let initializationPromise: Promise<void> | null = null;
-
-// Helper function to attach tools to session object
-function attachTools(session: any, tools: any[]) {
-  if (!session) return;
-
-  // Attach tools directly to session object
-  session.tools = tools;
-
-  // If mcpClient exists, also attach tools there
-  if (session.mcpClient) {
-    session.mcpClient.tools = tools;
-  }
-
-  // Add a special function to format tools for Anthropic or other LLMs
-  session.formatToolsForLLM = function () {
-    if (!this.tools || this.tools.length === 0) {
-      return null;
-    }
-
-    // Format depends on the LLM type
-    const llmType = this.config?.type || 'claude';
-
-    if (llmType === 'claude') {
-      // Format for Anthropic Claude - using the required schema
-      return {
-        type: 'tools',
-        tools: this.tools.map((tool: any) => ({
-          name: tool.name,
-          description: tool.description,
-          input_schema: tool.inputSchema,
-        })),
-      };
-    }
-
-    // Default format
-    return { tools: this.tools };
-  };
-
-  console.log(`[TOOLS] Attached ${tools.length} tools to session`);
-  return session;
-}
 
 async function initializeIfNeeded() {
   if (!initializationPromise) {
@@ -160,21 +55,7 @@ async function initializeIfNeeded() {
   await initializationPromise;
 }
 
-// Helper function to format tools for the Claude API
-function formatClaudeTools(tools: any[]) {
-  if (!tools || tools.length === 0) {
-    return null;
-  }
-
-  return {
-    type: 'tools',
-    tools: tools.map(tool => ({
-      name: tool.name,
-      description: tool.description,
-      input_schema: tool.inputSchema,
-    })),
-  };
-}
+// We'll let the MCP client handle tool formatting now
 
 export async function GET(request: NextRequest) {
   try {
@@ -213,6 +94,14 @@ export async function GET(request: NextRequest) {
           console.log('[STREAM] Starting to process chunks');
           for await (const chunk of messageStream) {
             console.log('[STREAM] Processing chunk:', chunk);
+
+            // Enhanced logging for tool-related chunks
+            if (chunk.type === 'tool_start') {
+              console.log('[STREAM] Tool execution starting:', chunk.content);
+            } else if (chunk.type === 'tool_result') {
+              console.log('[STREAM] Tool execution result:', chunk.content);
+            }
+
             const encodedChunk = new TextEncoder().encode(
               `data: ${JSON.stringify(chunk)}\n\n`
             );
@@ -263,7 +152,6 @@ export async function POST(request: NextRequest) {
 
     if (path === '/session') {
       try {
-        // Get request body
         let useTools = true; // Default to using tools
         try {
           const body = await request.json();
@@ -282,30 +170,60 @@ export async function POST(request: NextRequest) {
           use_tools: useTools,
         });
 
-        // Create a new session using the global configuration and cast to our extended type
-        const session = (await sessionManager.initializeSession({
+        // Prepare session config based on whether tools are enabled
+        const sessionConfig: LLMConfig = {
           type: globalConfig.llm.type,
           api_key: globalConfig.llm.api_key,
-          system_prompt: globalConfig.llm.system_prompt,
+          system_prompt: useTools 
+            ? "You are a helpful assistant with access to tools. When a user asks you something that requires using a tool, ALWAYS use the tool instead of making up an answer. For example, if a user asks about files, use the appropriate file tool."
+            : globalConfig.llm.system_prompt,
           model: globalConfig.llm.model,
-        })) as unknown as ExtendedChatSession;
-
-        // Attach tools directly to session if needed
-        if (useTools) {
-          console.log('[SESSION] Attaching built-in tools to session');
-          attachTools(session, BUILT_IN_TOOLS);
-        } else {
-          console.log('[SESSION] Tools disabled for this session');
+          // Only include servers if tools are enabled
+          servers: useTools ? globalConfig.servers : undefined,
+          // Pass along max_tool_calls if it exists
+          max_tool_calls: globalConfig.max_tool_calls
+        };
+        
+        try {
+          // Create a new session with proper configuration
+          console.log('[SESSION] Creating session with full config including servers');
+          const session = (await sessionManager.initializeSession(sessionConfig)) as unknown as ExtendedChatSession;
+          
+          // Mark this session as having MCP enabled if we included servers
+          if (useTools) {
+            console.log('[SESSION] MCP enabled for this session (servers were configured)');
+            session.mcpEnabled = true;
+          } else {
+            console.log('[SESSION] Tools disabled for this session');
+          }
+          
+          // Return the session information
+          return NextResponse.json(
+            {
+              sessionId: session.id,
+              messages: session.messages,
+              hasTools: useTools && session.mcpEnabled === true,
+            },
+            { status: 201 }
+          );
+        } catch (initError) {
+          console.error('[SESSION] Failed to initialize session with servers:', initError);
+          console.log('[SESSION] Falling back to session without MCP');
+          
+          // If session with servers failed, try again without servers
+          const fallbackSession = await sessionManager.initializeSession({
+            type: globalConfig.llm.type,
+            api_key: globalConfig.llm.api_key,
+            system_prompt: globalConfig.llm.system_prompt,
+            model: globalConfig.llm.model,
+          });
+          
+          return NextResponse.json({
+            sessionId: fallbackSession.id,
+            messages: fallbackSession.messages,
+            hasTools: false,
+          }, { status: 201 });
         }
-
-        return NextResponse.json(
-          {
-            sessionId: session.id,
-            messages: session.messages,
-            hasTools: useTools && session.tools && session.tools.length > 0,
-          },
-          { status: 201 }
-        );
       } catch (error) {
         console.error('Error creating session:', error);
         return NextResponse.json(
@@ -346,49 +264,48 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // Prepare tools if available
-        let toolsForLLM = null;
-        if (session.tools && session.tools.length > 0) {
-          console.log(
-            `[MESSAGE] Session ${sessionId} has ${session.tools.length} tools available`
-          );
-          toolsForLLM = formatClaudeTools(session.tools);
-          console.log(
-            '[MESSAGE] Formatted tools for Claude:',
-            JSON.stringify(toolsForLLM)
-          );
-        } else {
-          console.log('[MESSAGE] No tools available for this session');
-        }
+        // Check if MCP is enabled for this session
+        const mcpEnabled = !!(session as ExtendedChatSession).mcpEnabled;
 
-        // Instead of relying on internal formatting, manually send the tools to Anthropic
-        // This is a patch based on the assumption that we need to manually attach tools
-        const anthropicOptions = {
+        console.log(
+          `[MESSAGE] Session ${sessionId} has MCP enabled: ${mcpEnabled}`
+        );
+
+        // Let the SessionManager handle tool discovery and execution
+        const clientOptions = {
           temperature: 0.7,
           max_tokens: 1000,
-          tools: toolsForLLM,
+          tools: mcpEnabled ? 'auto' : 'none', // Enable tools only if MCP is enabled
         };
 
         console.log(
-          '[MESSAGE] Sending message with Anthropic options:',
-          JSON.stringify({
-            ...anthropicOptions,
-            tools: anthropicOptions.tools ? 'Included' : 'None',
-          })
+          '[MESSAGE] Client options prepared:',
+          JSON.stringify(clientOptions)
         );
 
-        // Attempt to pass anthropicOptions to the sendMessage function
-        // Use as any to bypass the type checking since we're patching the function call
         try {
-          const response = await (sessionManager.sendMessage as any)(
-            sessionId,
-            message,
-            anthropicOptions
-          );
+          console.log('[MESSAGE] Sending message with sessionManager');
+
+          // SessionManager should now handle the MCP tools automatically
+          if (mcpEnabled) {
+            console.log(
+              '[MESSAGE] MCP tools are enabled, SessionManager will handle tool execution'
+            );
+          }
+
+          // Send the message through the session manager
+          // The session manager will use the MCP client if it's available
+          const response = await sessionManager.sendMessage(sessionId, message);
+
+          console.log('[MESSAGE] Successfully sent message with client');
           return NextResponse.json(response);
         } catch (err) {
-          console.log('[MESSAGE] Error with options, trying without options');
+          console.error('[MESSAGE] Error sending message with options:', err);
+
           // Fallback to standard sendMessage without options
+          console.log(
+            '[MESSAGE] Falling back to standard method without options'
+          );
           const response = await sessionManager.sendMessage(sessionId, message);
           return NextResponse.json(response);
         }

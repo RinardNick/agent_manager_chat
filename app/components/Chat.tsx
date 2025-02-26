@@ -93,6 +93,9 @@ export function Chat() {
 
     // Add user message immediately
     setMessages(prev => [...prev, { role: 'user', content: message }]);
+    
+    // Add helpful debugging log to track message requests
+    console.log(`[CLIENT] Sending message: ${message}`);
 
     try {
       console.log('[CLIENT] Setting up EventSource connection');
@@ -145,6 +148,20 @@ export function Chat() {
                 ];
               }
             });
+          } else if (data.type === 'tool_start') {
+            console.log('[CLIENT] Tool execution started:', data.content);
+            // Show tool execution in UI
+            setMessages(prev => [
+              ...prev,
+              { role: 'system', content: `Using tool: ${data.content}` }
+            ]);
+          } else if (data.type === 'tool_result') {
+            console.log('[CLIENT] Tool execution result:', data.content);
+            // Show tool result in UI
+            setMessages(prev => [
+              ...prev,
+              { role: 'system', content: `Tool result: ${data.content}` }
+            ]);
           } else if (data.type === 'done') {
             console.log('[CLIENT] Stream complete, closing connection');
             eventSource.close();

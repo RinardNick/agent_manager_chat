@@ -29,21 +29,11 @@ export function Nav() {
             >
               Home
             </Link>
-            <Link
-              href="/basic-chat"
-              className={`transition-colors hover:text-foreground/80 ${
-                isActive('/basic-chat')
-                  ? 'text-foreground font-semibold'
-                  : 'text-foreground/60'
-              }`}
-            >
-              Basic Chat
-            </Link>
           </nav>
         </div>
         <div className="flex flex-1 items-center space-x-2 justify-end">
           <p className="text-sm text-foreground/60">
-            Status: <span className="text-green-600">Working without MCP</span>
+            Status: <span className="text-green-600">MCP Tools Enabled</span>
           </p>
         </div>
       </div>
