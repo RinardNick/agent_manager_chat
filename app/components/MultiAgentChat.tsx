@@ -11,12 +11,12 @@ import {
   ArrowRight, 
   Plus, 
   Edit2,
-  MessageSquareShare,
+  MessageSquare,
 } from 'lucide-react';
 
 type Message = {
   id: string;
-  role: 'user' | 'assistant' | 'thinking' | 'tool';
+  role: 'user' | 'assistant' | 'thinking' | 'tool' | 'system';
   content: string;
   isStreaming?: boolean;
 };
@@ -339,7 +339,7 @@ export default function MultiAgentChat() {
           id: newAgentId,
           name: `Agent ${agents.length + 1}`,
           conversation: currentAgent ? [...currentAgent.conversation] : [],
-          parentId: type === 'child' ? activeAgentId : type === 'parent' ? currentAgent?.parentId : null,
+          parentId: type === 'child' ? activeAgentId : type === 'parent' ? (currentAgent?.parentId || null) : null,
           childrenIds: [],
           x: newX,
           y: newY,
@@ -564,7 +564,7 @@ export default function MultiAgentChat() {
             <CardTitle className="text-2xl font-bold flex items-center">
               {chatTitle}
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 onClick={() => setEditingTitle(true)}
                 className="ml-2"
@@ -591,7 +591,7 @@ export default function MultiAgentChat() {
               onClick={() => setShowAgentInteraction(true)}
               disabled={!activeAgentId || agents.length < 2}
             >
-              <MessageSquareShare className="mr-2 h-4 w-4" />
+              <MessageSquare className="mr-2 h-4 w-4" />
               Message
             </Button>
           </div>
