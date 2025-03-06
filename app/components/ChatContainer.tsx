@@ -61,9 +61,9 @@ export default function ChatContainer() {
       eventSourceRef.current.close();
     }
 
-    // Create new connection
+    // Create new connection - just use the message parameter, the backend will use a fixed session ID
     const eventSource = new EventSource(
-      `/api/chat/stream?message=${encodeURIComponent(message)}&sessionId=default`
+      `/api/chat/stream?message=${encodeURIComponent(message)}`
     );
     eventSourceRef.current = eventSource;
 
@@ -106,16 +106,27 @@ export default function ChatContainer() {
       }));
     });
 
+    // Handle errors from the server side
     eventSource.addEventListener('error', event => {
       try {
-        const data = JSON.parse(event.data);
-        updateMessage(responseId, prev => ({
-          ...prev,
-          error: data.error,
-          status: 'error',
-        }));
+        // Try to parse the error data from the event
+        if (event.data) {
+          const data = JSON.parse(event.data);
+          updateMessage(responseId, prev => ({
+            ...prev,
+            error: data.error,
+            status: 'error',
+          }));
+        } else {
+          // Handle connection errors
+          updateMessage(responseId, prev => ({
+            ...prev,
+            error: 'Connection error occurred',
+            status: 'error',
+          }));
+        }
       } catch (err) {
-        // Handle connection errors
+        // Handle connection errors or parsing errors
         updateMessage(responseId, prev => ({
           ...prev,
           error: 'Connection error occurred',
@@ -126,6 +137,19 @@ export default function ChatContainer() {
       eventSource.close();
       setIsStreaming(false);
     });
+    
+    // Handle general EventSource errors (connection issues)
+    eventSource.onerror = (err) => {
+      console.error('EventSource error:', err);
+      updateMessage(responseId, prev => ({
+        ...prev,
+        error: 'Connection to server lost. Please try again.',
+        status: 'error',
+      }));
+      
+      eventSource.close();
+      setIsStreaming(false);
+    };
 
     eventSource.addEventListener('done', () => {
       updateMessage(responseId, prev => ({

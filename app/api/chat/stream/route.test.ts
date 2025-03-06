@@ -25,11 +25,14 @@ vi.mock('@rinardnick/client_mcp', () => {
     yield { type: 'done' };
   };
 
+  // Mock session manager
+  const mockSessionManager = {
+    initializeSession: vi.fn().mockResolvedValue(undefined),
+    sendMessageStream: vi.fn().mockImplementation(() => mockSendMessageStream())
+  };
+
   return {
-    SessionManager: vi.fn().mockImplementation(() => ({
-      initializeSession: vi.fn().mockResolvedValue(undefined),
-      sendMessageStream: vi.fn().mockImplementation(() => mockSendMessageStream())
-    }))
+    SessionManager: vi.fn().mockImplementation(() => mockSessionManager)
   };
 });
 

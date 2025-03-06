@@ -4,9 +4,11 @@ import { loadConfig, getDefaultConfigPath } from '../../../lib/configLoader';
 
 // Initialize sessionManager asynchronously
 let sessionManager: SessionManager | undefined;
+// Keep track of the session ID
+let defaultSessionId: string | undefined;
 
 // This function ensures we only initialize the session manager once
-async function getSessionManager(): Promise<SessionManager> {
+async function getSessionManager(): Promise<{ manager: SessionManager, sessionId: string }> {
   if (!sessionManager) {
     sessionManager = await (async () => {
       try {
@@ -21,8 +23,13 @@ async function getSessionManager(): Promise<SessionManager> {
           useSharedServers: true,
           servers: fullConfig.servers,
         });
-        // Initialize the default session
-        await manager.initializeSession(fullConfig.llm);
+        
+        // Initialize the default session and capture the session ID
+        // The session ID is the unique identifier for this conversation
+        console.log("[API] Initializing default session with client_mcp");
+        defaultSessionId = 'default'; // Use a constant session ID
+        await manager.initializeSession(fullConfig.llm, defaultSessionId);
+        console.log(`[API] Session initialized with ID: ${defaultSessionId}`);
 
         return manager;
       } catch (error) {
@@ -32,7 +39,14 @@ async function getSessionManager(): Promise<SessionManager> {
     })();
   }
 
-  return sessionManager;
+  if (!defaultSessionId) {
+    throw new Error('Session ID is not initialized');
+  }
+
+  return { 
+    manager: sessionManager,
+    sessionId: defaultSessionId
+  };
 }
 
 async function handleRequest(request: NextRequest) {
@@ -81,10 +95,13 @@ async function handleRequest(request: NextRequest) {
         return;
       }
 
-      const sessionManager = await getSessionManager();
-
+      // Get the session manager and session ID
+      const { manager, sessionId: actualSessionId } = await getSessionManager();
+      
+      console.log(`[API] Sending message to session: ${actualSessionId}`);
+      
       // Get stream from client_mcp
-      const mcpStream = sessionManager.sendMessageStream(sessionId, message);
+      const mcpStream = manager.sendMessageStream(actualSessionId, message);
 
       // Process the stream chunks
       for await (const chunk of mcpStream) {
