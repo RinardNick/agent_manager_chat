@@ -58,23 +58,23 @@ The implementation will use Next.js with:
 
 2. **Prepare API Routes**
    - [x] Create basic route structure for chat API
-   - [ ] Implement session management with persistent sessions
-   - [ ] Add proper error handling and logging
+   - [x] Implement session management with persistent sessions
+   - [x] Add proper error handling and logging
 
 ### Phase 2: Streaming Implementation
 
 3. **Implement Streaming API**
 
-   - [ ] Create a streaming endpoint at `/api/chat/stream`
-   - [ ] Implement correct headers for Server-Sent Events
-   - [ ] Configure streaming with client_mcp's sendMessageStream
-   - [ ] Handle different chunk types (content, thinking, tool_start, tool_result)
-   - [ ] Add error handling and reconnection logic
+   - [x] Create a streaming endpoint at `/api/chat/stream`
+   - [x] Implement correct headers for Server-Sent Events
+   - [x] Configure streaming with client_mcp's sendMessageStream
+   - [x] Handle different chunk types (content, thinking, tool_start, tool_result)
+   - [x] Add error handling and reconnection logic
 
 4. **Test Streaming Endpoint**
-   - [ ] Verify streaming works with curl or Postman
-   - [ ] Ensure all chunk types are properly emitted
-   - [ ] Test error handling and recovery
+   - [x] Verify streaming works with automated tests
+   - [x] Ensure all chunk types are properly emitted
+   - [x] Test error handling and recovery
 
 ### Phase 3: Frontend Development
 
