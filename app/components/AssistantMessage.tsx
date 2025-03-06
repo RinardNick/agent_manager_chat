@@ -49,7 +49,8 @@ export default function AssistantMessage({
         {toolCalls && toolCalls.length > 0 && (
           <div className="mb-2">
             {toolCalls.map((tool, index) => {
-              const isExpanded = expandedTools[index] ?? false;
+              // Auto-expand tools if there aren't too many
+              const isExpanded = expandedTools[index] ?? (toolCalls.length <= 2);
               // Match by tool ID if available, otherwise fall back to tool name
               const matchingResult = toolResults?.find(
                 result => 

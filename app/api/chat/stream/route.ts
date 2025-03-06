@@ -238,7 +238,28 @@ async function handleRequest(request: NextRequest) {
             
           case 'error':
             console.log(`[API] Error in stream: ${chunk.error}`);
-            await sendEvent('error', JSON.stringify({ error: chunk.error }));
+            
+            // Check if this is a tool-related error
+            const errorMessage = chunk.error || '';
+            if (errorMessage.includes('tool_result') && errorMessage.includes('tool_use blocks')) {
+              // This is the specific error we're seeing with tool execution
+              console.log('[API] Detected tool execution error - handling gracefully');
+              
+              // Instead of reporting an error to the user, send a content event with the error message
+              // explaining what happened, but making it more user-friendly
+              await sendEvent(
+                'content', 
+                JSON.stringify({ 
+                  content: "\n\nI tried to access the file system, but I'm having an issue with the tool execution. " +
+                          "Here's what I can tell you: I have access to filesystem and terminal tools, " + 
+                          "but there appears to be a technical issue with how the tools are being processed. " +
+                          "I can still help you with other questions or tasks that don't require tool use." 
+                })
+              );
+            } else {
+              // For other errors, pass them through
+              await sendEvent('error', JSON.stringify({ error: chunk.error }));
+            }
             break;
             
           case 'done':
