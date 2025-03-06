@@ -35,7 +35,7 @@ async function getSessionManager(): Promise<SessionManager> {
   return sessionManager;
 }
 
-export async function POST(request: NextRequest) {
+async function handleRequest(request: NextRequest) {
   // Set headers for Server-Sent Events
   const encoder = new TextEncoder();
   const customHeaders = new Headers({
@@ -56,7 +56,20 @@ export async function POST(request: NextRequest) {
     let writerClosed = false;
     
     try {
-      const { message, sessionId = 'default' } = await request.json();
+      // Support both GET and POST methods
+      let message: string;
+      let sessionId = 'default';
+      
+      if (request.method === 'GET') {
+        const { searchParams } = new URL(request.url);
+        message = searchParams.get('message') || '';
+        sessionId = searchParams.get('sessionId') || 'default';
+      } else {
+        // POST method
+        const body = await request.json();
+        message = body.message || '';
+        sessionId = body.sessionId || 'default';
+      }
 
       if (!message) {
         await sendEvent(
@@ -127,3 +140,6 @@ export async function POST(request: NextRequest) {
 
   return new Response(stream.readable, { headers: customHeaders });
 }
+
+export const GET = handleRequest;
+export const POST = handleRequest;
