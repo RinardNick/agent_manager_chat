@@ -103,35 +103,37 @@ The implementation will use Next.js with:
 
 8. **Enhanced Tool Use Visualization**
 
-   - [ ] Add expandable/collapsible tool calls
-   - [ ] Implement syntax highlighting for code in tool results
-   - [ ] Create visual indicators for tool execution status
-
-9. **Session Management**
-
-   - [ ] Implement local storage for conversation persistence
-   - [ ] Add session creation and selection UI
-   - [ ] Create session reset functionality
-
-10. **Error Handling and Retry Logic**
-    - [ ] Implement error display in UI
-    - [ ] Add retry mechanism for failed messages
-    - [ ] Create reconnection logic for dropped streams
+   - [x] Add expandable/collapsible tool calls
+   - [x] Implement syntax highlighting for code in tool results
+   - [x] Create visual indicators for tool execution status
 
 ### Phase 5: Polishing and Optimization
 
-11. **UI/UX Improvements**
+9. **UI/UX Improvements**
 
-    - [ ] Add responsive design for mobile devices
-    - [ ] Implement dark/light mode toggle
-    - [ ] Add keyboard shortcuts (Cmd/Ctrl + Enter to send)
-    - [ ] Implement auto-scroll with ability to pause
+   - [ ] Add responsive design for mobile devices
+   - [ ] Implement dark/light mode toggle
+   - [ ] Add keyboard shortcuts (Cmd/Ctrl + Enter to send)
+   - [ ] Implement auto-scroll with ability to pause
 
-12. **Performance Optimization**
+10. **Performance Optimization**
     - [ ] Implement message virtualization for long conversations
     - [ ] Add lazy loading for message history
     - [ ] Optimize markdown rendering
     - [ ] Implement debouncing for user input
+
+## More Advanced Features
+
+11. **Session Management**
+
+- [x] Implement local storage for conversation persistence
+- [x] Add session creation and selection UI
+- [x] Create session reset functionality
+
+12. **Error Handling and Retry Logic**
+    - [ ] Implement error display in UI
+    - [ ] Add retry mechanism for failed messages
+    - [ ] Create reconnection logic for dropped streams
 
 ## Detailed Technical Implementation
 

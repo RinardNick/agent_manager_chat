@@ -8,19 +8,19 @@ vi.mock('@rinardnick/client_mcp', () => {
   const mockSendMessageStream = async function* () {
     yield { type: 'thinking', content: 'Thinking...' };
     yield { type: 'content', content: 'Hello, this is a test response!' };
-    yield { 
-      type: 'tool_start', 
-      tool: { 
-        name: 'testTool', 
-        parameters: { param1: 'value1' } 
-      } 
-    };
-    yield { 
-      type: 'tool_result', 
-      tool: { 
-        name: 'testTool'
+    yield {
+      type: 'tool_start',
+      tool: {
+        name: 'testTool',
+        parameters: { param1: 'value1' },
       },
-      result: 'Test result'
+    };
+    yield {
+      type: 'tool_result',
+      tool: {
+        name: 'testTool',
+      },
+      result: 'Test result',
     };
     yield { type: 'done' };
   };
@@ -34,13 +34,47 @@ vi.mock('@rinardnick/client_mcp', () => {
       messages: [],
       // Other session properties as needed
     }),
-    sendMessageStream: vi.fn().mockImplementation(() => mockSendMessageStream())
+    sendMessageStream: vi
+      .fn()
+      .mockImplementation(() => mockSendMessageStream()),
   };
 
   return {
-    SessionManager: vi.fn().mockImplementation(() => mockSessionManager)
+    SessionManager: vi.fn().mockImplementation(() => mockSessionManager),
   };
 });
+
+// Mock the sessionManager module
+vi.mock('../../../lib/sessionManager', () => ({
+  getMCPSessionManager: vi.fn().mockImplementation(() => {
+    return {
+      sendMessageStream: vi.fn().mockImplementation(() => {
+        return {
+          [Symbol.asyncIterator]: async function* () {
+            yield { type: 'thinking', content: 'Thinking...' };
+            yield { type: 'content', content: 'Hello, this is a test response!' };
+            yield {
+              type: 'tool_start',
+              tool: {
+                name: 'testTool',
+                parameters: { param1: 'value1' },
+              },
+            };
+            yield {
+              type: 'tool_result',
+              tool: {
+                name: 'testTool',
+              },
+              result: 'Test result',
+            };
+            yield { type: 'done' };
+          }
+        };
+      })
+    };
+  }),
+  getActiveSessionId: vi.fn().mockReturnValue('test-session'),
+}));
 
 // Mock the configLoader
 vi.mock('../../../lib/configLoader', () => ({
@@ -50,20 +84,20 @@ vi.mock('../../../lib/configLoader', () => ({
       type: 'claude',
       model: 'test-model',
       api_key: 'test-key',
-      system_prompt: 'test-prompt'
+      system_prompt: 'test-prompt',
     },
     servers: {
       filesystem: {
         command: 'npx',
-        args: ['-y', '@modelcontextprotocol/server-filesystem', '/test']
+        args: ['-y', '@modelcontextprotocol/server-filesystem', '/test'],
       },
       terminal: {
         command: 'npx',
-        args: ['@rinardnick/mcp-terminal', '--allowed-commands', '[ls,pwd]']
-      }
+        args: ['@rinardnick/mcp-terminal', '--allowed-commands', '[ls,pwd]'],
+      },
     },
-    max_tool_calls: 5
-  })
+    max_tool_calls: 5,
+  }),
 }));
 
 describe('POST /api/chat/stream', () => {
@@ -75,22 +109,22 @@ describe('POST /api/chat/stream', () => {
     chunks = [];
     const reader = response.body?.getReader();
     const decoder = new TextDecoder();
-    
+
     if (!reader) return;
-    
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       const chunk = decoder.decode(value);
-      
+
       // Split by double newline (SSE message boundary)
       const events = chunk.split('\n\n').filter(Boolean);
-      
+
       for (const event of events) {
         const lines = event.split('\n');
         const eventType = lines[0].replace('event: ', '');
         const data = lines[1].replace('data: ', '');
-        
+
         chunks.push({ eventType, data: JSON.parse(data) });
       }
     }
@@ -98,17 +132,20 @@ describe('POST /api/chat/stream', () => {
 
   beforeEach(async () => {
     chunks = [];
-    
+
     // Create a mock request with a message
     const mockRequest = new NextRequest('http://localhost/api/chat/stream', {
       method: 'POST',
-      body: JSON.stringify({ message: 'Test message', sessionId: 'test-session' }),
-      headers: { 'Content-Type': 'application/json' }
+      body: JSON.stringify({
+        message: 'Test message',
+        sessionId: 'test-session',
+      }),
+      headers: { 'Content-Type': 'application/json' },
     });
-    
+
     res = await POST(mockRequest);
     expect(res.status).toBe(200);
-    
+
     // Capture all events from the stream
     await readAllChunks(res);
   });
@@ -121,21 +158,21 @@ describe('POST /api/chat/stream', () => {
 
   it('streams the correct event types in the expected order', async () => {
     expect(chunks.length).toBe(5);
-    
+
     expect(chunks[0].eventType).toBe('thinking');
     expect(chunks[0].data.content).toBe('Thinking...');
-    
+
     expect(chunks[1].eventType).toBe('content');
     expect(chunks[1].data.content).toBe('Hello, this is a test response!');
-    
+
     expect(chunks[2].eventType).toBe('tool_start');
     expect(chunks[2].data.toolName).toBe('testTool');
     expect(chunks[2].data.toolInput).toEqual({ param1: 'value1' });
-    
+
     expect(chunks[3].eventType).toBe('tool_result');
     expect(chunks[3].data.toolName).toBe('testTool');
     expect(chunks[3].data.result).toBe('Test result');
-    
+
     expect(chunks[4].eventType).toBe('done');
   });
 
@@ -143,14 +180,14 @@ describe('POST /api/chat/stream', () => {
     const mockRequest = new NextRequest('http://localhost/api/chat/stream', {
       method: 'POST',
       body: JSON.stringify({}),
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
     });
-    
+
     const response = await POST(mockRequest);
     expect(response.status).toBe(200); // Still 200 because it's an SSE response
-    
+
     await readAllChunks(response);
-    
+
     expect(chunks.length).toBe(1);
     expect(chunks[0].eventType).toBe('error');
     expect(chunks[0].data.error).toBe('No message provided');
