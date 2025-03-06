@@ -12,10 +12,12 @@ export interface Message {
   toolCalls?: Array<{
     toolName: string;
     toolInput: Record<string, any>;
+    toolId?: string;
   }>;
   toolResults?: Array<{
     toolName: string;
     result: any;
+    toolId?: string;
   }>;
   error?: string;
   status: 'complete' | 'streaming' | 'error';

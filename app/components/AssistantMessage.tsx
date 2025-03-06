@@ -50,8 +50,11 @@ export default function AssistantMessage({
           <div className="mb-2">
             {toolCalls.map((tool, index) => {
               const isExpanded = expandedTools[index] ?? false;
+              // Match by tool ID if available, otherwise fall back to tool name
               const matchingResult = toolResults?.find(
-                result => result.toolName === tool.toolName
+                result => 
+                  (tool.toolId && result.toolId && tool.toolId === result.toolId) || 
+                  result.toolName === tool.toolName
               );
 
               return (

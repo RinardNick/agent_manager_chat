@@ -3,7 +3,7 @@ import { SessionManager } from '@rinardnick/client_mcp';
 
 // Define proper types for the stream chunks based on actual structure
 interface StreamChunk {
-  type: 'thinking' | 'content' | 'tool_start' | 'tool_result' | 'error' | 'done';
+  type: 'thinking' | 'content' | 'tool_start' | 'tool_result' | 'error' | 'done' | 'tool_call' | 'tool_output';
   content?: string;
   error?: string;
   tool?: {
@@ -11,6 +11,11 @@ interface StreamChunk {
     parameters: Record<string, any>;
   };
   result?: any;
+  // Additional fields for new tool format (based on Anthropic's schema)
+  id?: string;
+  name?: string;
+  input?: Record<string, any>;
+  output?: any;
 }
 import { loadConfig, getDefaultConfigPath } from '../../../lib/configLoader';
 
@@ -166,6 +171,8 @@ async function handleRequest(request: NextRequest) {
 
       // Process the stream chunks
       for await (const chunk of mcpStream as AsyncGenerator<StreamChunk>) {
+        console.log(`[API] Received stream chunk type: ${chunk.type}`);
+        
         switch (chunk.type) {
           case 'thinking':
             await sendEvent(
@@ -173,35 +180,73 @@ async function handleRequest(request: NextRequest) {
               JSON.stringify({ content: chunk.content })
             );
             break;
+          
+          // Handle traditional tool_start format (might be deprecated)
           case 'tool_start':
             await sendEvent(
               'tool_start',
               JSON.stringify({
-                toolName: chunk.tool.name,
-                toolInput: chunk.tool.parameters,
+                toolName: chunk.tool?.name || '',
+                toolInput: chunk.tool?.parameters || {},
               })
             );
             break;
+          
+          // Handle traditional tool_result format (might be deprecated)
           case 'tool_result':
             await sendEvent(
               'tool_result',
               JSON.stringify({
-                toolName: chunk.tool.name,
+                toolName: chunk.tool?.name || '',
                 result: chunk.result,
               })
             );
             break;
+            
+          // Handle Claude's new tool usage format
+          case 'tool_call':
+            console.log(`[API] Tool call: ${chunk.name}, ID: ${chunk.id}`);
+            await sendEvent(
+              'tool_start',
+              JSON.stringify({
+                toolName: chunk.name || '',
+                toolInput: chunk.input || {},
+                toolId: chunk.id
+              })
+            );
+            break;
+          
+          // Handle Claude's new tool output format
+          case 'tool_output':
+            console.log(`[API] Tool output for ID: ${chunk.id}`);
+            await sendEvent(
+              'tool_result',
+              JSON.stringify({
+                toolName: chunk.name || '',
+                result: chunk.output,
+                toolId: chunk.id
+              })
+            );
+            break;
+            
           case 'content':
             await sendEvent(
               'content',
               JSON.stringify({ content: chunk.content })
             );
             break;
+            
           case 'error':
+            console.log(`[API] Error in stream: ${chunk.error}`);
             await sendEvent('error', JSON.stringify({ error: chunk.error }));
             break;
+            
           case 'done':
             await sendEvent('done', JSON.stringify({}));
+            break;
+            
+          default:
+            console.log(`[API] Unknown chunk type: ${chunk.type}`, chunk);
             break;
         }
       }
