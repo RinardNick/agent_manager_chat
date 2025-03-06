@@ -28,8 +28,20 @@ async function getSessionManager(): Promise<{ manager: SessionManager, sessionId
         
         // Initialize a session and get the ID that client_mcp generates
         console.log("[API] Initializing new session with client_mcp");
-        // Note: client_mcp will generate and return a session ID; we don't provide one
-        sessionId = await manager.initializeSession(fullConfig.llm);
+        
+        // Looking at the error logs, initializeSession returns a session object with an id property
+        const session = await manager.initializeSession(fullConfig.llm);
+        
+        // Extract the actual session ID string from the returned object
+        if (typeof session === 'object' && session !== null && 'id' in session) {
+          sessionId = session.id;
+        } else if (typeof session === 'string') {
+          sessionId = session;
+        } else {
+          console.log(`[API] Unexpected session format:`, session);
+          throw new Error('Invalid session format returned');
+        }
+        
         console.log(`[API] Session initialized with ID: ${sessionId}`);
 
         return manager;
