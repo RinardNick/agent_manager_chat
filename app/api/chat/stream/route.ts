@@ -1,5 +1,17 @@
 import { NextRequest } from 'next/server';
 import { SessionManager } from '@rinardnick/client_mcp';
+
+// Define proper types for the stream chunks based on actual structure
+interface StreamChunk {
+  type: 'thinking' | 'content' | 'tool_start' | 'tool_result' | 'error' | 'done';
+  content?: string;
+  error?: string;
+  tool?: {
+    name: string;
+    parameters: Record<string, any>;
+  };
+  result?: any;
+}
 import { loadConfig, getDefaultConfigPath } from '../../../lib/configLoader';
 
 // Initialize sessionManager asynchronously
@@ -21,16 +33,52 @@ async function getSessionManager(): Promise<{ manager: SessionManager, sessionId
         console.log("[API] Creating session manager");
         
         // Initialize the session manager with the loaded config
+        // According to the type definition, SessionManager only accepts useSharedServers
         const manager = new SessionManager({
-          useSharedServers: true,
-          servers: fullConfig.servers,
+          useSharedServers: true
         });
+        
+        // Log the available servers and tools in the config
+        if (fullConfig.servers) {
+          console.log("[API] Config has servers:", Object.keys(fullConfig.servers));
+        } else {
+          console.warn("[API] No servers configured in the config file");
+        }
+        
+        // The LLMConfig passed to initializeSession is where we need to pass the servers
+        // Create a new LLMConfig that includes everything needed
+        const llmConfig = {
+          ...fullConfig.llm,
+          // Add tools configuration - this is passed directly to the LLM
+          tools: [
+            // Define filesystem tools if available
+            ...(fullConfig.servers?.filesystem ? [{
+              type: "filesystem",
+              description: "Access and manipulate files in the filesystem"
+            }] : []),
+            // Define terminal tools if available
+            ...(fullConfig.servers?.terminal ? [{
+              type: "terminal",
+              description: "Execute commands in a terminal"
+            }] : [])
+          ],
+          // Add servers configuration
+          servers: fullConfig.servers,
+          // Enable thinking
+          thinking: {
+            enabled: true,
+            budget_tokens: 6000
+          },
+          // Add max_tool_calls if specified
+          max_tool_calls: fullConfig.max_tool_calls || 10
+        };
         
         // Initialize a session and get the ID that client_mcp generates
         console.log("[API] Initializing new session with client_mcp");
         
-        // Looking at the error logs, initializeSession returns a session object with an id property
-        const session = await manager.initializeSession(fullConfig.llm);
+        // Use our enhanced llmConfig with tools and servers
+        console.log("[API] Using LLM config with tools:", llmConfig.tools?.length || 0);
+        const session = await manager.initializeSession(llmConfig);
         
         // Extract the actual session ID string from the returned object
         if (typeof session === 'object' && session !== null && 'id' in session) {
@@ -117,7 +165,7 @@ async function handleRequest(request: NextRequest) {
       const mcpStream = manager.sendMessageStream(actualSessionId, message);
 
       // Process the stream chunks
-      for await (const chunk of mcpStream) {
+      for await (const chunk of mcpStream as AsyncGenerator<StreamChunk>) {
         switch (chunk.type) {
           case 'thinking':
             await sendEvent(

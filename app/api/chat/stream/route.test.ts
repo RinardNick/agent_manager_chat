@@ -52,7 +52,17 @@ vi.mock('../../../lib/configLoader', () => ({
       api_key: 'test-key',
       system_prompt: 'test-prompt'
     },
-    servers: {}
+    servers: {
+      filesystem: {
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-filesystem', '/test']
+      },
+      terminal: {
+        command: 'npx',
+        args: ['@rinardnick/mcp-terminal', '--allowed-commands', '[ls,pwd]']
+      }
+    },
+    max_tool_calls: 5
   })
 }));
 
