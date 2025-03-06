@@ -27,7 +27,8 @@ vi.mock('@rinardnick/client_mcp', () => {
 
   // Mock session manager
   const mockSessionManager = {
-    initializeSession: vi.fn().mockResolvedValue(undefined),
+    // Return a mock session ID when initializing
+    initializeSession: vi.fn().mockResolvedValue('mock-session-id'),
     sendMessageStream: vi.fn().mockImplementation(() => mockSendMessageStream())
   };
 

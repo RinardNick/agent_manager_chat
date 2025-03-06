@@ -5,7 +5,7 @@ import { loadConfig, getDefaultConfigPath } from '../../../lib/configLoader';
 // Initialize sessionManager asynchronously
 let sessionManager: SessionManager | undefined;
 // Keep track of the session ID
-let defaultSessionId: string | undefined;
+let sessionId: string | undefined;
 
 // This function ensures we only initialize the session manager once
 async function getSessionManager(): Promise<{ manager: SessionManager, sessionId: string }> {
@@ -18,18 +18,19 @@ async function getSessionManager(): Promise<{ manager: SessionManager, sessionId
         // Load the configuration
         const fullConfig = await loadConfig(configPath);
 
+        console.log("[API] Creating session manager");
+        
         // Initialize the session manager with the loaded config
         const manager = new SessionManager({
           useSharedServers: true,
           servers: fullConfig.servers,
         });
         
-        // Initialize the default session and capture the session ID
-        // The session ID is the unique identifier for this conversation
-        console.log("[API] Initializing default session with client_mcp");
-        defaultSessionId = 'default'; // Use a constant session ID
-        await manager.initializeSession(fullConfig.llm, defaultSessionId);
-        console.log(`[API] Session initialized with ID: ${defaultSessionId}`);
+        // Initialize a session and get the ID that client_mcp generates
+        console.log("[API] Initializing new session with client_mcp");
+        // Note: client_mcp will generate and return a session ID; we don't provide one
+        sessionId = await manager.initializeSession(fullConfig.llm);
+        console.log(`[API] Session initialized with ID: ${sessionId}`);
 
         return manager;
       } catch (error) {
@@ -39,13 +40,13 @@ async function getSessionManager(): Promise<{ manager: SessionManager, sessionId
     })();
   }
 
-  if (!defaultSessionId) {
+  if (!sessionId) {
     throw new Error('Session ID is not initialized');
   }
 
   return { 
     manager: sessionManager,
-    sessionId: defaultSessionId
+    sessionId: sessionId
   };
 }
 
