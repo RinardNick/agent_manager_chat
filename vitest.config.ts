@@ -19,6 +19,14 @@ export default defineConfig({
           './app/lib/__mocks__/@rinardnick/client_mcp.ts'
         ),
       },
+      {
+        find: '@/app',
+        replacement: fileURLToPath(new URL('./app', import.meta.url)),
+      },
+      {
+        find: '@',
+        replacement: fileURLToPath(new URL('./app', import.meta.url)),
+      },
     ],
   },
   resolve: {
