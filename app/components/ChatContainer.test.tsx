@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import ChatContainer from './ChatContainer';
-import * as sessionManager from '../lib/sessionManager';
+import * as clientSessionManager from '../lib/clientSessionManager';
 
-// Mock sessionManager
-vi.mock('../lib/sessionManager', () => ({
+// Mock clientSessionManager
+vi.mock('../lib/clientSessionManager', () => ({
   getActiveSessionId: vi.fn(),
-  getAllSessions: vi.fn(),
-  setActiveSession: vi.fn(),
-  initializeNewSession: vi.fn(),
-  renameSession: vi.fn(),
+  getSessions: vi.fn(),
+  setActiveSessionId: vi.fn(),
+  createSession: vi.fn(),
+  updateSession: vi.fn(),
   deleteSession: vi.fn(),
 }));
 
@@ -17,8 +17,8 @@ vi.mock('../lib/sessionManager', () => ({
 vi.mock('./SessionControls', () => ({
   default: ({ onActiveSessionChange }: any) => (
     <div data-testid="session-controls">
-      <button 
-        data-testid="session-change-button" 
+      <button
+        data-testid="session-change-button"
         onClick={onActiveSessionChange}
       >
         Change Session
@@ -52,20 +52,20 @@ const originalLocalStorage = window.localStorage;
 const originalConfirm = window.confirm;
 
 // Mock the EventSource
-const mockEventSource = vi.fn().mockImplementation(() => ({
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-  close: vi.fn(),
-  CONNECTING: 0,
-  OPEN: 1,
-  CLOSED: 2,
-  readyState: 0,
-  url: '',
-  withCredentials: false,
-  onopen: null,
-  onmessage: null,
-  onerror: null,
-}));
+class MockEventSource {
+  addEventListener = vi.fn();
+  removeEventListener = vi.fn();
+  close = vi.fn();
+  CONNECTING = 0;
+  OPEN = 1;
+  CLOSED = 2;
+  readyState = 0;
+  url = '';
+  withCredentials = false;
+  onopen = null;
+  onmessage = null;
+  onerror = null;
+}
 
 // Save original EventSource
 const originalEventSource = global.EventSource;
@@ -73,22 +73,24 @@ const originalEventSource = global.EventSource;
 describe('ChatContainer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    
+
     // Mock localStorage
     Object.defineProperty(window, 'localStorage', {
       value: localStorageMock,
       writable: true,
     });
-    
+
     // Mock window.confirm
     window.confirm = vi.fn(() => true);
-    
+
     // Mock EventSource
-    global.EventSource = mockEventSource;
-    
+    global.EventSource = MockEventSource as any;
+
     // Mock active session ID
-    vi.mocked(sessionManager.getActiveSessionId).mockReturnValue('session1');
-    
+    vi.mocked(clientSessionManager.getActiveSessionId).mockReturnValue(
+      'session1'
+    );
+
     // Clear localStorage mock
     localStorageMock.clear();
   });
@@ -105,15 +107,19 @@ describe('ChatContainer', () => {
 
   it('renders the session controls and chat components', () => {
     render(<ChatContainer />);
-    
+
     // Check if session controls are rendered
     expect(screen.getByTestId('session-controls')).toBeInTheDocument();
-    
+
     // Check if clear chat button is rendered
-    expect(screen.getByRole('button', { name: /clear chat/i })).toBeInTheDocument();
-    
+    expect(
+      screen.getByRole('button', { name: /clear chat/i })
+    ).toBeInTheDocument();
+
     // Check if the input field and button are rendered
-    expect(screen.getByPlaceholderText('Type your message...')).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText('Type your message...')
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument();
   });
 
@@ -121,13 +127,13 @@ describe('ChatContainer', () => {
     // Setup localStorage with some messages
     const messages = [
       { id: '1', role: 'user', content: 'Hello', status: 'complete' },
-      { id: '2', role: 'assistant', content: 'Hi there', status: 'complete' }
+      { id: '2', role: 'assistant', content: 'Hi there', status: 'complete' },
     ];
-    
+
     localStorageMock.getItem.mockReturnValueOnce(JSON.stringify(messages));
-    
+
     render(<ChatContainer />);
-    
+
     // Should have loaded messages from localStorage
     expect(localStorageMock.getItem).toHaveBeenCalledWith(
       'claude_chat_messages_session1'
@@ -135,43 +141,47 @@ describe('ChatContainer', () => {
   });
 
   it('adds a user message when message is sent', async () => {
-    vi.mocked(sessionManager.getActiveSessionId).mockReturnValue('session1');
-    
+    vi.mocked(clientSessionManager.getActiveSessionId).mockReturnValue(
+      'session1'
+    );
+
     render(<ChatContainer />);
-    
+
     // Type a message
     const input = screen.getByPlaceholderText('Type your message...');
     fireEvent.change(input, { target: { value: 'Hello, AI!' } });
-    
+
     // Click send button
     const sendButton = screen.getByRole('button', { name: /send/i });
     fireEvent.click(sendButton);
-    
+
     // Check if the message is displayed
     await waitFor(() => {
       expect(screen.getByText('Hello, AI!')).toBeInTheDocument();
     });
-    
+
     // Input should be cleared after sending
     expect(input).toHaveValue('');
-    
+
     // Should save to localStorage
     expect(localStorageMock.setItem).toHaveBeenCalled();
   });
 
   it('shows a loading state while waiting for response', async () => {
     render(<ChatContainer />);
-    
+
     // Type and send a message
     const input = screen.getByPlaceholderText('Type your message...');
     fireEvent.change(input, { target: { value: 'Test message' } });
-    
+
     const sendButton = screen.getByRole('button', { name: /send/i });
     fireEvent.click(sendButton);
-    
+
     // Check if loading indicator appears
-    expect(screen.getByTestId('assistant-message-streaming')).toBeInTheDocument();
-    
+    expect(
+      screen.getByTestId('assistant-message-streaming')
+    ).toBeInTheDocument();
+
     // Button should be disabled while streaming
     expect(sendButton).toBeDisabled();
   });
@@ -180,19 +190,19 @@ describe('ChatContainer', () => {
     // Setup localStorage with some messages
     const messages = [
       { id: '1', role: 'user', content: 'Hello', status: 'complete' },
-      { id: '2', role: 'assistant', content: 'Hi there', status: 'complete' }
+      { id: '2', role: 'assistant', content: 'Hi there', status: 'complete' },
     ];
-    
+
     localStorageMock.getItem.mockReturnValueOnce(JSON.stringify(messages));
-    
+
     render(<ChatContainer />);
-    
+
     // Click clear button
     fireEvent.click(screen.getByRole('button', { name: /clear chat/i }));
-    
+
     // Confirm deletion
     expect(window.confirm).toHaveBeenCalled();
-    
+
     // Should remove messages from localStorage
     expect(localStorageMock.removeItem).toHaveBeenCalledWith(
       'claude_chat_messages_session1'
