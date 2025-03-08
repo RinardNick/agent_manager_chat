@@ -3,7 +3,8 @@ import { SessionManager } from '@rinardnick/client_mcp';
 import {
   getMCPSessionManager,
   getActiveSessionId,
-} from '../../../lib/sessionManager';
+  initializeSession,
+} from '@/app/lib/serverSessionManager';
 
 // Define proper types for the stream chunks based on actual structure
 interface StreamChunk {
@@ -197,7 +198,7 @@ async function handleRequest(request: NextRequest) {
 
       // Use the active session if sessionId is not provided
       if (!sessionId) {
-        const activeSessionId = getActiveSessionId();
+        const activeSessionId = await getActiveSessionId();
         if (!activeSessionId) {
           await sendEvent(
             'error',
@@ -214,6 +215,18 @@ async function handleRequest(request: NextRequest) {
       const manager = await getMCPSessionManager();
 
       console.log(`[API] Sending message to session: ${sessionId}`);
+
+      // Make sure the session exists before trying to send a message
+      const sessionExists = await initializeSession(sessionId);
+      if (!sessionExists) {
+        await sendEvent(
+          'error',
+          JSON.stringify({ error: `Session not found: ${sessionId}` })
+        );
+        writerClosed = true;
+        await writer.close();
+        return;
+      }
 
       // Get stream from client_mcp
       const mcpStream = manager.sendMessageStream(sessionId, message);
