@@ -1,5 +1,13 @@
-import { SessionManager as MCPSessionManager } from '@rinardnick/client_mcp';
-import { loadConfig, getDefaultConfigPath } from './configLoader';
+'use client';
+
+/**
+ * CLIENT-SIDE SESSION MANAGER
+ *
+ * This file handles client-side state for chat sessions:
+ * - Storing/retrieving session information in localStorage
+ * - Managing active session selection
+ * - Providing interfaces to create, delete, and modify sessions
+ */
 
 // Define types for our session management
 export interface Session {
@@ -14,51 +22,6 @@ export interface SessionState {
   activeSessionId: string | null;
 }
 
-// Initialize session manager instance
-let sessionManager: MCPSessionManager | undefined;
-
-// Get or create the client_mcp session manager
-export async function getMCPSessionManager(): Promise<MCPSessionManager> {
-  if (!sessionManager) {
-    sessionManager = await (async () => {
-      try {
-        // Get the config path
-        const configPath = await getDefaultConfigPath();
-
-        // Load the configuration
-        const fullConfig = await loadConfig(configPath);
-
-        // Initialize the session manager with the loaded config
-        const manager = new MCPSessionManager({
-          useSharedServers: true,
-        });
-
-        // Initialize a default session if needed
-        const existingSessionId = getActiveSessionId();
-        if (!existingSessionId) {
-          const session = await manager.initializeSession(fullConfig.llm);
-          if (
-            typeof session === 'object' &&
-            session !== null &&
-            'id' in session
-          ) {
-            createSession(session.id, 'Default Session');
-          } else if (typeof session === 'string') {
-            createSession(session, 'Default Session');
-          }
-        }
-
-        return manager;
-      } catch (error) {
-        console.error('Failed to initialize session manager:', error);
-        throw error;
-      }
-    })();
-  }
-
-  return sessionManager;
-}
-
 // Local storage key for session data
 const SESSION_STORAGE_KEY = 'claude_chat_sessions';
 
@@ -68,17 +31,16 @@ export function getSessionState(): SessionState {
     return { sessions: [], activeSessionId: null };
   }
 
-  const storedData = localStorage.getItem(SESSION_STORAGE_KEY);
-  if (!storedData) {
-    return { sessions: [], activeSessionId: null };
+  try {
+    const storedState = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (storedState) {
+      return JSON.parse(storedState);
+    }
+  } catch (error) {
+    console.error('Error reading session state from localStorage:', error);
   }
 
-  try {
-    return JSON.parse(storedData) as SessionState;
-  } catch (e) {
-    console.error('Failed to parse session data from localStorage:', e);
-    return { sessions: [], activeSessionId: null };
-  }
+  return { sessions: [], activeSessionId: null };
 }
 
 // Save session state to local storage
@@ -87,8 +49,8 @@ export function saveSessionState(state: SessionState): void {
 
   try {
     localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state));
-  } catch (e) {
-    console.error('Failed to save session data to localStorage:', e);
+  } catch (error) {
+    console.error('Error saving session state to localStorage:', error);
   }
 }
 
@@ -104,10 +66,10 @@ export function createSession(id: string, name: string): Session {
     lastUsedAt: Date.now(),
   };
 
-  // Add to state
+  // Update state
   const newState: SessionState = {
     sessions: [...state.sessions, newSession],
-    activeSessionId: newSession.id,
+    activeSessionId: id,
   };
 
   saveSessionState(newState);
@@ -164,13 +126,22 @@ export function deleteSession(sessionId: string): boolean {
   // Filter out the session to delete
   const updatedSessions = state.sessions.filter(s => s.id !== sessionId);
 
-  // If we're deleting the active session, set active to the most recently used remaining session
+  // If no change, session didn't exist
+  if (updatedSessions.length === state.sessions.length) return false;
+
+  // Set new active session if needed
   let newActiveId = state.activeSessionId;
   if (state.activeSessionId === sessionId) {
-    const remainingSessions = updatedSessions.sort(
-      (a, b) => b.lastUsedAt - a.lastUsedAt
-    );
-    newActiveId = remainingSessions.length > 0 ? remainingSessions[0].id : null;
+    if (updatedSessions.length > 0) {
+      // Sort sessions by lastUsedAt (most recent first)
+      const sortedSessions = [...updatedSessions].sort(
+        (a, b) => b.lastUsedAt - a.lastUsedAt
+      );
+      // Select the most recently used session
+      newActiveId = sortedSessions[0].id;
+    } else {
+      newActiveId = null;
+    }
   }
 
   // Update state
@@ -188,14 +159,15 @@ export function renameSession(sessionId: string, newName: string): boolean {
   const state = getSessionState();
 
   // Update the session name
-  const updatedSessions = state.sessions.map(s =>
-    s.id === sessionId ? { ...s, name: newName } : s
-  );
+  const sessionIndex = state.sessions.findIndex(s => s.id === sessionId);
+  if (sessionIndex === -1) return false;
 
-  // Verify session existed
-  if (JSON.stringify(updatedSessions) === JSON.stringify(state.sessions)) {
-    return false;
-  }
+  const updatedSessions = [...state.sessions];
+  updatedSessions[sessionIndex] = {
+    ...updatedSessions[sessionIndex],
+    name: newName,
+    lastUsedAt: Date.now(),
+  };
 
   // Update state
   const newState: SessionState = {
@@ -212,27 +184,14 @@ export function clearAllSessions(): void {
   saveSessionState({ sessions: [], activeSessionId: null });
 }
 
-// Initialize a new session with client_mcp
+// Initialize a new session with server-side MCP
 export async function initializeNewSession(
   name: string = 'New Session'
 ): Promise<Session> {
   try {
-    const manager = await getMCPSessionManager();
-    const configPath = await getDefaultConfigPath();
-    const fullConfig = await loadConfig(configPath);
-
-    // Create a new session with client_mcp
-    const session = await manager.initializeSession(fullConfig.llm);
-
-    // Extract session ID
-    let sessionId: string;
-    if (typeof session === 'object' && session !== null && 'id' in session) {
-      sessionId = session.id;
-    } else if (typeof session === 'string') {
-      sessionId = session;
-    } else {
-      throw new Error('Invalid session format returned');
-    }
+    // Use the server-side function to create a new MCP session
+    const { initializeNewMCPSession } = await import('./serverSessionManager');
+    const sessionId = await initializeNewMCPSession();
 
     // Create local session
     return createSession(sessionId, name);
