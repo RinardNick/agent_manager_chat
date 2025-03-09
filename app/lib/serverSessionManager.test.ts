@@ -5,8 +5,12 @@ import {
   initializeNewMCPSession,
   getActiveSessionId,
   initializeSession,
+  testSingleton,
 } from './serverSessionManager';
 import { loadConfig } from './configLoader';
+
+// Mock the global object
+const mockGlobal = global as any;
 
 // Mock the SessionManager and its methods
 vi.mock('@rinardnick/client_mcp', () => {
@@ -83,5 +87,71 @@ describe('Server Session Manager', () => {
     // The function should return false when the session doesn't exist
     const result = await initializeSession(nonExistentSessionId);
     expect(result).toBe(false);
+  });
+});
+
+describe('ServerSessionManager Singleton Pattern', () => {
+  beforeEach(() => {
+    // Reset the global variables before each test
+    mockGlobal.mcpSessionManager = undefined;
+    mockGlobal.sessionManagerRequests = undefined;
+  });
+
+  it('should create a new SessionManager instance when first called', async () => {
+    // First call should create a new instance
+    const manager = await getMCPSessionManager();
+
+    // Check that manager was created and stored in global
+    expect(manager).toBeDefined();
+    expect(mockGlobal.mcpSessionManager).toBe(manager);
+    expect(mockGlobal.sessionManagerRequests).toBe(1);
+  });
+
+  it('should reuse the existing SessionManager instance on subsequent calls', async () => {
+    // First call
+    const manager1 = await getMCPSessionManager();
+
+    // Second call should return the same instance
+    const manager2 = await getMCPSessionManager();
+
+    // Check that both references are the same object
+    expect(manager1).toBe(manager2);
+    expect(mockGlobal.mcpSessionManager).toBe(manager1);
+    expect(mockGlobal.sessionManagerRequests).toBe(2);
+  });
+
+  it('should increment the request counter with each call', async () => {
+    // Make several calls
+    await getMCPSessionManager();
+    await getMCPSessionManager();
+    await getMCPSessionManager();
+
+    // Counter should match the number of calls
+    expect(mockGlobal.sessionManagerRequests).toBe(3);
+  });
+
+  it('should return true from testSingleton() when singleton behavior is working', async () => {
+    // testSingleton makes multiple calls to getMCPSessionManager and verifies they return the same instance
+    const result = await testSingleton();
+    expect(result).toBe(true);
+  });
+
+  it('should maintain singleton behavior across multiple API requests', async () => {
+    // This test simulates multiple API requests by getting the manager multiple times
+
+    // First "API request"
+    const manager1 = await getMCPSessionManager();
+
+    // Simulate clearing request-specific variables but keeping global state
+    // (as would happen between separate API requests)
+    const storedManager = mockGlobal.mcpSessionManager;
+
+    // Second "API request"
+    const manager2 = await getMCPSessionManager();
+
+    // Managers should be the same instance
+    expect(manager1).toBe(storedManager);
+    expect(manager2).toBe(storedManager);
+    expect(manager1).toBe(manager2);
   });
 });

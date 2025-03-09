@@ -37,6 +37,12 @@ vi.mock('@rinardnick/client_mcp', () => {
     sendMessageStream: vi
       .fn()
       .mockImplementation(() => mockSendMessageStream()),
+    getSession: vi.fn().mockImplementation(sessionId => {
+      if (sessionId === 'mock-session-id' || sessionId === 'test-session-id') {
+        return { id: sessionId };
+      }
+      throw new Error(`Session not found: ${sessionId}`);
+    }),
   };
 
   return {
@@ -44,15 +50,18 @@ vi.mock('@rinardnick/client_mcp', () => {
   };
 });
 
-// Mock the sessionManager module
-vi.mock('../../../lib/sessionManager', () => ({
+// Mock the serverSessionManager module
+vi.mock('../../../lib/serverSessionManager', () => ({
   getMCPSessionManager: vi.fn().mockImplementation(() => {
     return {
       sendMessageStream: vi.fn().mockImplementation(() => {
         return {
           [Symbol.asyncIterator]: async function* () {
             yield { type: 'thinking', content: 'Thinking...' };
-            yield { type: 'content', content: 'Hello, this is a test response!' };
+            yield {
+              type: 'content',
+              content: 'Hello, this is a test response!',
+            };
             yield {
               type: 'tool_start',
               tool: {
@@ -68,12 +77,22 @@ vi.mock('../../../lib/sessionManager', () => ({
               result: 'Test result',
             };
             yield { type: 'done' };
-          }
+          },
         };
-      })
+      }),
+      getSession: vi.fn().mockImplementation(sessionId => {
+        if (
+          sessionId === 'mock-session-id' ||
+          sessionId === 'test-session-id'
+        ) {
+          return { id: sessionId };
+        }
+        throw new Error(`Session not found: ${sessionId}`);
+      }),
     };
   }),
-  getActiveSessionId: vi.fn().mockReturnValue('test-session'),
+  getActiveSessionId: vi.fn().mockResolvedValue('test-session-id'),
+  initializeSession: vi.fn().mockResolvedValue(true),
 }));
 
 // Mock the configLoader

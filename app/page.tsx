@@ -1,14 +1,10 @@
-'use client';
-
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import SimpleChatInterface from './components/SimpleChatInterface';
 
 export default function Home() {
-  const router = useRouter();
-
-  useEffect(() => {
-    router.push('/chat');
-  }, [router]);
-
-  return null;
+  return (
+    <main className="flex min-h-screen flex-col items-center p-4">
+      <h1 className="text-2xl font-bold mb-4">Simple Chat Interface</h1>
+      <SimpleChatInterface />
+    </main>
+  );
 }

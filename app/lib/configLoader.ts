@@ -1,3 +1,5 @@
+'use server';
+
 import { loadConfig as loadMCPConfig, LLMConfig } from '@rinardnick/client_mcp';
 import path from 'path';
 import fs from 'fs';
@@ -28,63 +30,73 @@ export async function getDefaultConfigPath(): Promise<string> {
     return rootConfigPath;
   }
 
-  // Default path as the last resort
-  return path.resolve(process.cwd(), '.mcp', 'config.json');
+  throw new Error('Could not find config file');
 }
 
 export async function loadConfig(configPath: string): Promise<FullConfig> {
   try {
-    // Attempt to load the config directly from the specified path
-    let config;
+    // Check if the file exists and is readable
+    if (fs.existsSync(configPath)) {
+      // Read the file
+      const fileData = fs.readFileSync(configPath, 'utf8');
 
-    try {
-      // Try to load with client_mcp loader first
-      config = await loadMCPConfig(configPath);
-    } catch (error: any) {
-      // If that fails, try to load the file directly
-      console.log(
-        `[CONFIG] Failed to load with client_mcp loader: ${error.message}`
-      );
-      console.log(
-        `[CONFIG] Attempting to load config file directly: ${configPath}`
-      );
+      // Parse and validate the config
+      try {
+        const config = JSON.parse(fileData);
 
-      if (fs.existsSync(configPath)) {
-        const fileContent = fs.readFileSync(configPath, 'utf8');
-        config = JSON.parse(fileContent);
-      } else {
-        console.log(
-          `[CONFIG] Config file not found at ${configPath}, falling back to environment variables`
-        );
-        return getEnvConfig();
+        // Validate required fields
+        if (!config.llm || !config.llm.api_key) {
+          console.log(
+            '[CONFIG] Warning: Missing required llm.api_key in config file'
+          );
+          return await getEnvConfig();
+        }
+
+        if (!config.llm.type) {
+          console.log('[CONFIG] Warning: Missing llm.type in config file');
+          return await getEnvConfig();
+        }
+
+        if (!config.servers) {
+          config.servers = {
+            filesystem: {
+              command: 'npx',
+              args: [
+                '-y',
+                '@modelcontextprotocol/server-filesystem',
+                '/workspace',
+              ],
+              env: {},
+            },
+            terminal: {
+              command: 'npx',
+              args: [
+                '@rinardnick/mcp-terminal',
+                '--allowed-commands',
+                '[go,python3,uv,npm,npx,git,ls,cd,touch,mv,pwd,mkdir]',
+              ],
+              env: {},
+            },
+          };
+        }
+
+        return config;
+      } catch (err) {
+        console.log('[CONFIG] Error parsing config file:', err);
+        return await getEnvConfig();
       }
-    }
-
-    // Keep the nested structure if it already exists
-    if (config.llm) {
-      // Config already has the expected structure with llm object
-      return config as FullConfig;
-    } else if (config.type) {
-      // Config is in the flattened format, convert to nested
-      return {
-        llm: config as LLMConfig,
-        servers: config.servers || {},
-        max_tool_calls: 10,
-      };
     } else {
-      console.log(
-        '[CONFIG] Config has unexpected format, falling back to environment variables'
-      );
-      return getEnvConfig();
+      console.log(`[CONFIG] Config file not found at ${configPath}`);
+      return await getEnvConfig();
     }
   } catch (error: any) {
     console.log(`[CONFIG] Error loading config: ${error.message}`);
-    return getEnvConfig();
+    return await getEnvConfig();
   }
 }
 
 // Export a function to get config from environment variables in the correct structure
-function getEnvConfig(): FullConfig {
+async function getEnvConfig(): Promise<FullConfig> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     throw new Error('ANTHROPIC_API_KEY environment variable is required');
@@ -120,6 +132,6 @@ function getEnvConfig(): FullConfig {
 }
 
 // Keep the original function for backward compatibility, but use nested structure internally
-export function loadConfigFromEnv(): LLMConfig {
-  return getEnvConfig().llm;
+export async function loadConfigFromEnv(): Promise<LLMConfig> {
+  return (await getEnvConfig()).llm;
 }

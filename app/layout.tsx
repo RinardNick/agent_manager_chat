@@ -5,20 +5,18 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Multi-Agent Chat',
-  description: 'A multi-agent chat interface using client_mcp',
+  title: 'Simple Chat Interface',
+  description: 'A simple chat interface using client_mcp',
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.className} antialiased`}>
-        <main className="min-h-screen bg-background">{children}</main>
-      </body>
+    <html lang="en">
+      <body className={inter.className}>{children}</body>
     </html>
   );
 }

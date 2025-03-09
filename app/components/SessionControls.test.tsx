@@ -3,6 +3,11 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import SessionControls from './SessionControls';
 import * as clientSessionManager from '../lib/clientSessionManager';
 
+// Mock the dynamic import directly
+vi.mock('@/app/lib/serverSessionManager', () => ({
+  initializeNewMCPSession: vi.fn().mockResolvedValue('mock-session-id'),
+}));
+
 // Mock the clientSessionManager module
 vi.mock('../lib/clientSessionManager', () => ({
   getSessions: vi.fn(),
@@ -41,6 +46,9 @@ describe('SessionControls', () => {
       lastUsedAt: Date.now(),
     });
     vi.mocked(clientSessionManager.deleteSession).mockImplementation(() => {});
+
+    // Mock window.alert
+    window.alert = vi.fn();
   });
 
   it('renders session dropdown with sessions from localStorage', () => {
@@ -82,13 +90,14 @@ describe('SessionControls', () => {
     // Click the new session button
     fireEvent.click(screen.getByRole('button', { name: /new/i }));
 
-    // Should call createSession
-    expect(clientSessionManager.createSession).toHaveBeenCalled();
+    // Wait for the async operations to complete
+    await waitFor(() => {
+      // Should call createSession
+      expect(clientSessionManager.createSession).toHaveBeenCalled();
+    });
 
     // Should call the change handler
-    await waitFor(() => {
-      expect(mockOnChange).toHaveBeenCalled();
-    });
+    expect(mockOnChange).toHaveBeenCalled();
   });
 
   it('renames the active session when rename button is clicked', async () => {
