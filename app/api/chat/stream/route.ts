@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getMCPSessionManager } from '../../../lib/serverSessionManager';
 
-// Define proper types for the stream chunks
+// Define types for the stream chunks
 interface BaseStreamChunk {
   type: string;
   content?: string;
@@ -26,7 +26,6 @@ interface ToolResultChunk extends BaseStreamChunk {
 type StreamChunk = BaseStreamChunk | ToolCallChunk | ToolResultChunk;
 
 export async function GET(request: NextRequest) {
-  // Get the message and session ID from the query parameters
   const searchParams = request.nextUrl.searchParams;
   const message = searchParams.get('message');
   const sessionId = searchParams.get('sessionId');
@@ -36,26 +35,20 @@ export async function GET(request: NextRequest) {
       JSON.stringify({ error: 'Message and sessionId are required' }),
       {
         status: 400,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
       }
     );
   }
 
-  // Initialize streaming response
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        // Get the session manager
         const sessionManager = await getMCPSessionManager();
 
-        // Try to get the session, will throw if it doesn't exist
         try {
           sessionManager.getSession(sessionId);
         } catch (error) {
-          // Session doesn't exist
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
@@ -68,10 +61,8 @@ export async function GET(request: NextRequest) {
           return;
         }
 
-        // Send the message to the session and receive events
         const mcpStream = sessionManager.sendMessageStream(sessionId, message);
 
-        // Process each chunk from the stream
         for await (const chunk of mcpStream as AsyncIterable<StreamChunk>) {
           try {
             if (chunk.type === 'thinking') {
@@ -143,11 +134,10 @@ export async function GET(request: NextRequest) {
               controller.close();
             }
           } catch (error) {
-            console.error('[STREAM] Error processing chunk:', error);
+            // Silently handle chunk processing errors
           }
         }
       } catch (error) {
-        console.error('[STREAM] Error in stream handler:', error);
         controller.enqueue(
           encoder.encode(
             `data: ${JSON.stringify({
@@ -161,7 +151,6 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  // Return the streaming response
   return new Response(stream, {
     headers: {
       'Content-Type': 'text/event-stream',

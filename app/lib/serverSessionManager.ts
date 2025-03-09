@@ -9,15 +9,25 @@ declare global {
 }
 
 /**
- * Gets or creates the MCP session manager instance
+ * Gets or creates the MCP session manager instance with server configuration
  */
 export async function getMCPSessionManager(): Promise<MCPSessionManager> {
   if (!global.mcpSessionManager) {
     console.log('[SERVER] Creating new SessionManager instance');
+
+    // Load the configuration first
+    const configPath = await getDefaultConfigPath();
+    const fullConfig = await loadConfig(configPath);
+
+    // Create session manager with shared servers enabled
     global.mcpSessionManager = new MCPSessionManager({
       useSharedServers: true,
     });
-    console.log('[SERVER] SessionManager created');
+
+    console.log(
+      '[SERVER] SessionManager created with server configs:',
+      Object.keys(fullConfig.servers || {}).join(', ')
+    );
   }
   return global.mcpSessionManager;
 }
@@ -36,7 +46,12 @@ export async function initializeNewMCPSession(): Promise<string> {
       return 'mock-session-id';
     }
 
-    const session = await manager.initializeSession(fullConfig.llm);
+    // Pass the entire configuration including servers to initializeSession
+    const session = await manager.initializeSession({
+      ...fullConfig.llm,
+      servers: fullConfig.servers || {},
+      max_tool_calls: fullConfig.max_tool_calls,
+    });
 
     // Return the session ID
     if (typeof session === 'object' && session !== null && 'id' in session) {
@@ -50,6 +65,7 @@ export async function initializeNewMCPSession(): Promise<string> {
     if (process.env.NODE_ENV === 'test') {
       return 'mock-session-id';
     }
+    console.error('[SERVER] Error initializing session:', error);
     throw error;
   }
 }

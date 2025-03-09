@@ -32,22 +32,6 @@ export default function SimpleChatInterface() {
 
   // Initialize session on first load
   useEffect(() => {
-    async function initSession() {
-      try {
-        const response = await fetch('/api/chat/session', {
-          method: 'POST',
-        });
-
-        if (!response.ok) throw new Error('Failed to create session');
-
-        const data = await response.json();
-        setSessionId(data.sessionId);
-        console.log('Created new session:', data.sessionId);
-      } catch (error) {
-        console.error('Error initializing session:', error);
-      }
-    }
-
     if (!sessionId) {
       initSession();
     }
@@ -67,35 +51,49 @@ export default function SimpleChatInterface() {
     };
   }, []);
 
+  async function initSession() {
+    try {
+      const response = await fetch('/api/chat/session', {
+        method: 'POST',
+      });
+
+      if (!response.ok) throw new Error('Failed to create session');
+
+      const data = await response.json();
+      setSessionId(data.sessionId);
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  }
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || !sessionId || isLoading) return;
 
+    // Add user message
     const userMessage: Message = {
       id: uuidv4(),
       role: 'user',
       content: input,
       status: 'complete',
     };
-
-    // Add user message to UI
     setMessages(prev => [...prev, userMessage]);
     setInput('');
 
-    // Create placeholder for assistant response
-    const assistantMessageId = uuidv4();
-    const assistantMessage: Message = {
-      id: assistantMessageId,
-      role: 'assistant',
-      content: '',
-      status: 'streaming',
-    };
+    // Add assistant placeholder
+    const assistantId = uuidv4();
+    setMessages(prev => [
+      ...prev,
+      {
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        status: 'streaming',
+      },
+    ]);
 
-    setMessages(prev => [...prev, assistantMessage]);
     setIsLoading(true);
-
-    // Start streaming the response
-    startStreaming(input, assistantMessageId, sessionId);
+    startStreaming(input, assistantId, sessionId);
   };
 
   const startStreaming = (
@@ -103,16 +101,14 @@ export default function SimpleChatInterface() {
     responseId: string,
     sessionId: string
   ) => {
-    // Close any existing connection
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
 
-    const encodedSessionId = encodeURIComponent(sessionId);
     const eventSource = new EventSource(
       `/api/chat/stream?message=${encodeURIComponent(
         message
-      )}&sessionId=${encodedSessionId}`
+      )}&sessionId=${encodeURIComponent(sessionId)}`
     );
 
     eventSourceRef.current = eventSource;
@@ -135,19 +131,13 @@ export default function SimpleChatInterface() {
           updateMessage(responseId, prev => {
             const toolCalls = [...(prev.toolCalls || [])];
             toolCalls.push(data.tool_call);
-            return {
-              ...prev,
-              toolCalls,
-            };
+            return { ...prev, toolCalls };
           });
         } else if (data.type === 'tool_result' && data.tool_result) {
           updateMessage(responseId, prev => {
             const toolResults = [...(prev.toolResults || [])];
             toolResults.push(data.tool_result);
-            return {
-              ...prev,
-              toolResults,
-            };
+            return { ...prev, toolResults };
           });
         } else if (data.type === 'error') {
           updateMessage(responseId, prev => ({
@@ -166,12 +156,11 @@ export default function SimpleChatInterface() {
           setIsLoading(false);
         }
       } catch (error) {
-        console.error('Error parsing SSE message:', error);
+        console.error('Error parsing message:', error);
       }
     };
 
-    eventSource.onerror = error => {
-      console.error('EventSource error:', error);
+    eventSource.onerror = () => {
       updateMessage(responseId, prev => ({
         ...prev,
         error: 'Connection error',
@@ -189,26 +178,26 @@ export default function SimpleChatInterface() {
   };
 
   const resetChat = async () => {
-    // Create a new session
-    try {
-      setMessages([]);
-
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-      }
-
-      const response = await fetch('/api/chat/session', {
-        method: 'POST',
-      });
-
-      if (!response.ok) throw new Error('Failed to create session');
-
-      const data = await response.json();
-      setSessionId(data.sessionId);
-      console.log('Created new session:', data.sessionId);
-    } catch (error) {
-      console.error('Error resetting chat:', error);
+    setMessages([]);
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
     }
+    await initSession();
+  };
+
+  const renderToolSection = (
+    label: string,
+    items: any[],
+    renderer: (item: any, idx: number) => JSX.Element
+  ) => {
+    if (!items || items.length === 0) return null;
+
+    return (
+      <div className="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-600">
+        <div className="font-medium mb-1">{label}:</div>
+        {items.map(renderer)}
+      </div>
+    );
   };
 
   return (
@@ -216,7 +205,7 @@ export default function SimpleChatInterface() {
       {/* Header */}
       <div className="p-4 border-b flex justify-between items-center">
         <div>
-          <h2 className="font-semibold">Chat Session</h2>
+          <h2 className="font-semibold">Chat</h2>
           {sessionId && (
             <p className="text-xs text-gray-500">ID: {sessionId}</p>
           )}
@@ -233,7 +222,7 @@ export default function SimpleChatInterface() {
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
           <div className="h-full flex items-center justify-center text-gray-400">
-            Start a conversation by sending a message
+            Start a conversation
           </div>
         ) : (
           messages.map(message => (
@@ -260,35 +249,33 @@ export default function SimpleChatInterface() {
               )}
 
               {/* Tool calls section */}
-              {message.toolCalls && message.toolCalls.length > 0 && (
-                <div className="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-600">
-                  <div className="font-medium mb-1">Tool Calls:</div>
-                  {message.toolCalls.map((tool, idx) => (
-                    <div key={idx} className="mb-2 last:mb-0">
-                      <div className="font-medium">{tool.toolName}</div>
-                      <pre className="bg-gray-100 p-1 rounded text-xs overflow-auto">
-                        {JSON.stringify(tool.toolInput, null, 2)}
-                      </pre>
-                    </div>
-                  ))}
-                </div>
+              {renderToolSection(
+                'Tool Calls',
+                message.toolCalls || [],
+                (tool, idx) => (
+                  <div key={idx} className="mb-2 last:mb-0">
+                    <div className="font-medium">{tool.toolName}</div>
+                    <pre className="bg-gray-100 p-1 rounded text-xs overflow-auto">
+                      {JSON.stringify(tool.toolInput, null, 2)}
+                    </pre>
+                  </div>
+                )
               )}
 
               {/* Tool results section */}
-              {message.toolResults && message.toolResults.length > 0 && (
-                <div className="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-600">
-                  <div className="font-medium mb-1">Tool Results:</div>
-                  {message.toolResults.map((result, idx) => (
-                    <div key={idx} className="mb-2 last:mb-0">
-                      <div className="font-medium">{result.toolName}</div>
-                      <pre className="bg-gray-100 p-1 rounded text-xs overflow-auto">
-                        {typeof result.result === 'object'
-                          ? JSON.stringify(result.result, null, 2)
-                          : String(result.result)}
-                      </pre>
-                    </div>
-                  ))}
-                </div>
+              {renderToolSection(
+                'Tool Results',
+                message.toolResults || [],
+                (result, idx) => (
+                  <div key={idx} className="mb-2 last:mb-0">
+                    <div className="font-medium">{result.toolName}</div>
+                    <pre className="bg-gray-100 p-1 rounded text-xs overflow-auto">
+                      {typeof result.result === 'object'
+                        ? JSON.stringify(result.result, null, 2)
+                        : String(result.result)}
+                    </pre>
+                  </div>
+                )
               )}
 
               {/* Error display */}
