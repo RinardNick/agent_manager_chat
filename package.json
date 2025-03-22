@@ -15,7 +15,7 @@
   "dependencies": {
     "@radix-ui/react-scroll-area": "^1.2.1",
     "@radix-ui/react-slot": "^1.0.2",
-    "@rinardnick/client_mcp": "^1.2.6",
+    "@rinardnick/client_mcp": "^1.2.9",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.0.1",

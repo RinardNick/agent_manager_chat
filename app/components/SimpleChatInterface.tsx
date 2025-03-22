@@ -37,6 +37,21 @@ export default function SimpleChatInterface() {
     }
   }, [sessionId]);
 
+  // Add a helpful welcome message when a new session is created
+  useEffect(() => {
+    if (sessionId && messages.length === 0) {
+      setMessages([
+        {
+          id: uuidv4(),
+          role: 'assistant',
+          content:
+            "Hello! I'm Claude, and I have access to tools that let me interact with files and run terminal commands. If you ask me about files or directories, I'll use the appropriate tools to help you. How can I assist you today?",
+          status: 'complete',
+        },
+      ]);
+    }
+  }, [sessionId, messages.length]);
+
   // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -70,17 +85,32 @@ export default function SimpleChatInterface() {
     e.preventDefault();
     if (!input.trim() || !sessionId || isLoading) return;
 
-    // Add user message
+    // Check if the message is related to files/directories and enhance it if needed
+    let enhancedMessage = input;
+    if (
+      input.toLowerCase().includes('file') ||
+      input.toLowerCase().includes('director') ||
+      input.toLowerCase().includes('folder') ||
+      input.toLowerCase().includes('list') ||
+      input.toLowerCase().includes('show me') ||
+      input.toLowerCase().includes('tool')
+    ) {
+      // Add an explicit prompt to use tools
+      enhancedMessage = `${input}\n\nPlease use the appropriate tools like list_directory or read_file to fulfill this request. Don't make assumptions, use the tools.`;
+    }
+
     const userMessage: Message = {
       id: uuidv4(),
       role: 'user',
-      content: input,
+      content: input, // Still show the original message to the user
       status: 'complete',
     };
+
+    // Add user message to UI
     setMessages(prev => [...prev, userMessage]);
     setInput('');
 
-    // Add assistant placeholder
+    // Create placeholder for assistant response
     const assistantId = uuidv4();
     setMessages(prev => [
       ...prev,
@@ -93,7 +123,7 @@ export default function SimpleChatInterface() {
     ]);
 
     setIsLoading(true);
-    startStreaming(input, assistantId, sessionId);
+    startStreaming(enhancedMessage, assistantId, sessionId); // Use enhanced message here
   };
 
   const startStreaming = (
@@ -116,27 +146,46 @@ export default function SimpleChatInterface() {
     eventSource.onmessage = event => {
       try {
         const data = JSON.parse(event.data);
+        console.log('Stream event data:', data); // Add logging for debugging
 
         if (data.type === 'thinking' && data.content) {
           updateMessage(responseId, prev => ({
             ...prev,
             thinking: data.content,
           }));
-        } else if (data.type === 'content' && data.content) {
+        } else if (data.type === 'content') {
+          // For text content updates
           updateMessage(responseId, prev => ({
             ...prev,
-            content: (prev.content || '') + data.content,
+            content:
+              data.content !== undefined ? data.content : prev.content || '',
           }));
         } else if (data.type === 'tool_call' && data.tool_call) {
+          // For tool call updates - now using the properly structured data
           updateMessage(responseId, prev => {
             const toolCalls = [...(prev.toolCalls || [])];
-            toolCalls.push(data.tool_call);
+            const newToolCall = {
+              toolName: data.tool_call.toolName,
+              toolInput: data.tool_call.toolInput || {},
+              toolId: data.tool_call.toolId,
+            };
+            toolCalls.push(newToolCall);
             return { ...prev, toolCalls };
           });
-        } else if (data.type === 'tool_result' && data.tool_result) {
+        } else if (
+          (data.type === 'tool_result' || data.type === 'tool_output') &&
+          (data.tool_result || data.tool_output)
+        ) {
+          // For tool result updates
+          const result = data.tool_result || data.tool_output;
           updateMessage(responseId, prev => {
             const toolResults = [...(prev.toolResults || [])];
-            toolResults.push(data.tool_result);
+            const newResult = {
+              toolName: result.toolName,
+              result: result.result || result.output || result.toolOutput || {},
+              toolId: result.toolId,
+            };
+            toolResults.push(newResult);
             return { ...prev, toolResults };
           });
         } else if (data.type === 'error') {
@@ -156,7 +205,7 @@ export default function SimpleChatInterface() {
           setIsLoading(false);
         }
       } catch (error) {
-        console.error('Error parsing message:', error);
+        console.error('Error parsing message:', error, event.data);
       }
     };
 
@@ -194,7 +243,9 @@ export default function SimpleChatInterface() {
 
     return (
       <div className="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-600">
-        <div className="font-medium mb-1">{label}:</div>
+        <div className="font-medium mb-1">
+          {label} ({items.length}):
+        </div>
         {items.map(renderer)}
       </div>
     );

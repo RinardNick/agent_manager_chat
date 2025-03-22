@@ -6,13 +6,44 @@ import { loadConfig, getDefaultConfigPath } from './configLoader';
 // Create a type for the global object augmentation
 declare global {
   var mcpSessionManager: MCPSessionManager | undefined;
+  var isInitializingSessionManager: boolean | undefined;
+  var isInitializingSession: boolean | undefined;
+  var lastInitializedSessionId: string | undefined;
 }
 
 /**
  * Gets or creates the MCP session manager instance with server configuration
  */
 export async function getMCPSessionManager(): Promise<MCPSessionManager> {
-  if (!global.mcpSessionManager) {
+  // Return existing instance if available
+  if (global.mcpSessionManager) {
+    return global.mcpSessionManager;
+  }
+
+  // Check if we're already in the process of initializing
+  if (global.isInitializingSessionManager) {
+    // Wait for initialization to complete (crude but effective)
+    console.log('[SERVER] Waiting for existing initialization to complete...');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // If still initializing, wait longer or return existing instance
+    if (global.isInitializingSessionManager) {
+      console.log(
+        '[SERVER] Initialization taking longer than expected, waiting again...'
+      );
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    // Now the initialization should be done
+    if (global.mcpSessionManager) {
+      return global.mcpSessionManager;
+    }
+  }
+
+  // Set initializing flag to prevent concurrent initialization
+  global.isInitializingSessionManager = true;
+
+  try {
     console.log('[SERVER] Creating new SessionManager instance');
 
     // Load the configuration first
@@ -28,14 +59,51 @@ export async function getMCPSessionManager(): Promise<MCPSessionManager> {
       '[SERVER] SessionManager created with server configs:',
       Object.keys(fullConfig.servers || {}).join(', ')
     );
+
+    return global.mcpSessionManager;
+  } catch (error) {
+    console.error('[SERVER] Error creating SessionManager:', error);
+    throw error;
+  } finally {
+    // Clear initializing flag
+    global.isInitializingSessionManager = false;
   }
-  return global.mcpSessionManager;
 }
 
 /**
  * Initializes a new MCP session and returns the session ID
  */
 export async function initializeNewMCPSession(): Promise<string> {
+  // Check if there's already a session being initialized
+  if (global.isInitializingSession) {
+    console.log(
+      '[SESSION] Waiting for existing session initialization to complete...'
+    );
+
+    // Wait for the existing initialization to complete
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // If still initializing, wait longer
+    if (global.isInitializingSession) {
+      console.log(
+        '[SESSION] Session initialization taking longer than expected, waiting again...'
+      );
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    // Check if a session was initialized during our wait
+    if (global.lastInitializedSessionId) {
+      console.log(
+        '[SESSION] Using existing initialized session:',
+        global.lastInitializedSessionId
+      );
+      return global.lastInitializedSessionId;
+    }
+  }
+
+  // Set flag to prevent concurrent session initialization
+  global.isInitializingSession = true;
+
   try {
     const manager = await getMCPSessionManager();
     const configPath = await getDefaultConfigPath();
@@ -43,23 +111,89 @@ export async function initializeNewMCPSession(): Promise<string> {
 
     // For testing purposes, return a mock ID
     if (process.env.NODE_ENV === 'test') {
+      global.lastInitializedSessionId = 'mock-session-id';
       return 'mock-session-id';
     }
 
-    // Pass the entire configuration including servers to initializeSession
-    const session = await manager.initializeSession({
-      ...fullConfig.llm,
-      servers: fullConfig.servers || {},
-      max_tool_calls: fullConfig.max_tool_calls,
-    });
+    try {
+      // Simplify the session initialization to match the integration test
+      const session = await manager.initializeSession({
+        type: fullConfig.llm.type,
+        model: fullConfig.llm.model,
+        api_key: fullConfig.llm.api_key,
+        system_prompt: fullConfig.llm.system_prompt,
+        // Only include thinking if it's explicitly enabled
+        ...(fullConfig.llm.thinking?.enabled
+          ? { thinking: fullConfig.llm.thinking }
+          : {}),
+        // Include servers exactly as in the test
+        servers: fullConfig.servers || {},
+        // Explicitly set max_tool_calls
+        max_tool_calls: fullConfig.max_tool_calls || 10,
+      });
 
-    // Return the session ID
-    if (typeof session === 'object' && session !== null && 'id' in session) {
-      return session.id;
-    } else if (typeof session === 'string') {
-      return session;
-    } else {
-      throw new Error('Failed to initialize session: Invalid session format');
+      // Process the result and store the session ID
+      let sessionId: string;
+      if (typeof session === 'object' && session !== null && 'id' in session) {
+        sessionId = session.id;
+      } else if (typeof session === 'string') {
+        sessionId = session;
+      } else {
+        throw new Error('Failed to initialize session: Invalid session format');
+      }
+
+      // Store the last session ID for reuse
+      global.lastInitializedSessionId = sessionId;
+      return sessionId;
+    } catch (error: any) {
+      // Check if error is related to server already running
+      if (
+        error.message &&
+        error.message.includes('Server is already running')
+      ) {
+        console.log(
+          '[SERVER] Server already running, attempting to retry session creation...'
+        );
+
+        // Wait a moment for server initialization to stabilize
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Retry with just LLM config, letting the existing servers be used
+        const session = await manager.initializeSession({
+          type: fullConfig.llm.type,
+          model: fullConfig.llm.model,
+          api_key: fullConfig.llm.api_key,
+          system_prompt: fullConfig.llm.system_prompt,
+          // Only include thinking if it's explicitly enabled
+          ...(fullConfig.llm.thinking?.enabled
+            ? { thinking: fullConfig.llm.thinking }
+            : {}),
+          // Explicitly set max_tool_calls
+          max_tool_calls: fullConfig.max_tool_calls || 10,
+        });
+
+        let sessionId: string;
+        if (
+          typeof session === 'object' &&
+          session !== null &&
+          'id' in session
+        ) {
+          sessionId = session.id;
+        } else if (typeof session === 'string') {
+          sessionId = session;
+        } else {
+          throw new Error(
+            'Failed to initialize session: Invalid session format'
+          );
+        }
+
+        // Store the last session ID for reuse
+        global.lastInitializedSessionId = sessionId;
+        return sessionId;
+      }
+
+      // Rethrow other errors
+      throw error;
     }
   } catch (error) {
     if (process.env.NODE_ENV === 'test') {
@@ -67,6 +201,9 @@ export async function initializeNewMCPSession(): Promise<string> {
     }
     console.error('[SERVER] Error initializing session:', error);
     throw error;
+  } finally {
+    // Always clear the initializing flag when done
+    global.isInitializingSession = false;
   }
 }
 
